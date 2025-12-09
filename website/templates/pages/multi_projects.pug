@@ -27,6 +27,16 @@ block content
 									img(src=proj.icon alt="" style="height: 100px")
 								div.media-body.align-self-center
 									a.text-decoration-none(href=`/projects/${proj.id}`)= proj.title
+									if proj.stats && proj.stats.completion !== null
+										- var completion = proj.stats.completion || 0
+										- // Plus vert = plus de complétion (0% = rouge, 100% = vert foncé)
+										- var hue = Math.min(120, completion * 1.2) // 0-120 (rouge à vert)
+										- var saturation = Math.min(85, 30 + completion * 0.55) // Saturation plus élevée pour les hauts pourcentages
+										- var lightness = Math.max(35, 50 - completion * 0.15) // Plus sombre pour les hauts pourcentages (vert foncé)
+										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+										div.mt-2
+											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500;`)
+												= `${completion}% complété`
 
 	//- Other projects
 	a#others
@@ -47,3 +57,13 @@ block content
 									a.text-decoration-none(href=`/projects/${proj.id}`)
 										| #{proj.title}
 										span.text-muted.d-block= new Date(proj.month).toLocaleString(getLocale(), { month: 'long', year: 'numeric' })
+									if proj.stats && proj.stats.completion !== null
+										- var completion = proj.stats.completion || 0
+										- // Plus vert = plus de complétion (0% = rouge, 100% = vert foncé)
+										- var hue = Math.min(120, completion * 1.2) // 0-120 (rouge à vert)
+										- var saturation = Math.min(85, 30 + completion * 0.55) // Saturation plus élevée pour les hauts pourcentages
+										- var lightness = Math.max(35, 50 - completion * 0.15) // Plus sombre pour les hauts pourcentages (vert foncé)
+										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+										div.mt-1
+											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500;`)
+												= `${completion}% complété`

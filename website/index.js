@@ -93,14 +93,88 @@ app.get("/", (req, res) => {
   }
   // Multiple projects
   else if (nbProjects > 1) {
-    res.render(
-      "pages/multi_projects",
-      Object.assign({
-        CONFIG,
-        currentProjects: p.current,
-        otherProjects: p.past.reverse(),
-      }),
-    );
+    // Fetch completion statistics for all projects
+    const allProjects = [...(p.current || []), ...(p.past || [])];
+    const statsPromises = allProjects.map((proj) => {
+      if (!proj.statistics || !proj.statistics.count) {
+        return Promise.resolve({ id: proj.id, currentCount: null, completion: null });
+      }
+      
+      return pool
+        .query(
+          `
+          SELECT amount
+          FROM pdm_feature_counts
+          WHERE project = $1
+          ORDER BY ts DESC
+          LIMIT 1
+        `,
+          [proj.id],
+        )
+        .then((results) => {
+          const currentCount = results.rows.length > 0 ? parseInt(results.rows[0].amount) : 0;
+          
+          // Estimate target based on project type (rough estimates for France)
+          const projectType = proj.id.split("_").pop();
+          const baseEstimates = {
+            surveillance: 500000,    // Caméras de surveillance
+            manholes: 2000000,       // Bouches d'égout
+            bicycle_parking: 500000,  // Stationnements vélos
+            rnb: 10000000,           // Références bâtiments
+            restaurant: 200000,      // Restaurants
+            drinking_water: 100000,  // Points d'eau
+            bench: 500000,           // Bancs
+            contact_email: 500000,   // Lieux avec email
+            streetlamps: 10000000,   // Éclairages
+          };
+          
+          let target = baseEstimates[projectType] || 100000;
+          
+          // If current count exceeds base estimate, adjust target upward
+          // This handles cases where we've already mapped more than expected
+          if (currentCount > target * 0.8) {
+            // If we're at 80% of base estimate, increase target by 50%
+            target = Math.max(target * 1.5, currentCount * 1.2);
+          } else if (currentCount > 0 && currentCount < target * 0.1) {
+            // If we have very few objects, use a more conservative estimate
+            // Target is at least 10x current count, but not less than base estimate
+            target = Math.max(target, currentCount * 10);
+          }
+          
+          const completion = target > 0 ? Math.min(100, Math.round((currentCount / target) * 100)) : 0;
+          
+          return { id: proj.id, currentCount, target, completion };
+        })
+        .catch(() => {
+          return { id: proj.id, currentCount: null, completion: null };
+        });
+    });
+
+    Promise.all(statsPromises).then((stats) => {
+      const statsMap = {};
+      stats.forEach((s) => {
+        statsMap[s.id] = s;
+      });
+
+      // Add stats to projects
+      const currentProjectsWithStats = (p.current || []).map((proj) => ({
+        ...proj,
+        stats: statsMap[proj.id] || { currentCount: null, completion: null },
+      }));
+      const otherProjectsWithStats = (p.past || []).map((proj) => ({
+        ...proj,
+        stats: statsMap[proj.id] || { currentCount: null, completion: null },
+      }));
+
+      res.render(
+        "pages/multi_projects",
+        Object.assign({
+          CONFIG,
+          currentProjects: currentProjectsWithStats,
+          otherProjects: otherProjectsWithStats.reverse(),
+        }),
+      );
+    });
   }
   // No projects at all
   else {

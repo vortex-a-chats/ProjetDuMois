@@ -19,8 +19,8 @@ const IMPOSM_CACHE_DIR = CONFIG.WORK_DIR + '/imposm_cache';
 const IMPOSM_DIFF_DIR = CONFIG.WORK_DIR + '/imposm_diffs';
 const OSC_FULL = CONFIG.WORK_DIR + '/changes_features.osc.gz';
 const OSC_LOCAL = CONFIG.WORK_DIR + '/changes_features.local.osc.gz';
-const OUTPUT_SCRIPT = __dirname+'/21_features_update_tmp.sh';
-const UNINSTALL_SCRIPT = __dirname+'/91_project_uninstall_tmp.sql';
+const OUTPUT_SCRIPT = CONFIG.WORK_DIR + '/21_features_update_tmp.sh';
+const UNINSTALL_SCRIPT = CONFIG.WORK_DIR + '/91_project_uninstall_tmp.sql';
 
 // Generate Imposm YAML config file
 const yamlData = {
@@ -232,6 +232,11 @@ script += `${separator}
 
 echo "Done"
 `;
+
+// Ensure work directory exists
+if (!fs.existsSync(CONFIG.WORK_DIR)) {
+	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
+}
 
 // Script de mise à jour
 fs.writeFile(OUTPUT_SCRIPT, script, { mode: 0o766 }, err => {

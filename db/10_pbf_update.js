@@ -19,7 +19,7 @@ const OSC_UPDATES = CONFIG.WORK_DIR + '/changes.osc.gz';
 
 const COOKIES = CONFIG.WORK_DIR + '/cookie.txt';
 const PSQL = `psql -d ${process.env.DB_URL}`;
-const OUTPUT_SCRIPT = __dirname+'/11_pbf_update_tmp.sh';
+const OUTPUT_SCRIPT = CONFIG.WORK_DIR + '/11_pbf_update_tmp.sh';
 
 // Script text
 const separator = `echo "-------------------------------------------------------------------"
@@ -53,15 +53,58 @@ if [ -f "${OSH_UPDATED}" ]; then
 
 else
 	echo "== Get cookies for authorized download of OSH PBF file"
-	python3 ${__dirname}/../lib/sendfile_osm_oauth_protector/oauth_cookie_client.py \\
+	if ! python3 ${__dirname}/../lib/sendfile_osm_oauth_protector/oauth_cookie_client.py \\
 		--osm-host ${CONFIG.OSM_URL} \\
 		-u "${CONFIG.OSM_USER}" -p "${CONFIG.OSM_PASS}" \\
 		-c ${CONFIG.OSH_PBF_URL.split("/").slice(0, 3).join("/")}/get_cookie \\
-		-o "${COOKIES}"
+		-o "${COOKIES}" 2>&1; then
+		echo "ERROR: Failed to obtain authentication cookie from OSM."
+		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
+		echo "The OSH PBF file requires OSM authentication to download."
+		rm -f "${COOKIES}"
+		exit 1
+	fi
+
+	if [ ! -f "${COOKIES}" ] || [ ! -s "${COOKIES}" ]; then
+		echo "ERROR: Cookie file is missing or empty. Authentication may have failed."
+		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
+		rm -f "${COOKIES}"
+		exit 1
+	fi
 
 	echo "== Download OSH PBF file"
-	wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" -O "${OSH_UPDATED}" "${CONFIG.OSH_PBF_URL}"
-	wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" "${CONFIG.OSH_PBF_URL.replace("-internal.osh.pbf", ".poly")}"
+	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" -O "${OSH_UPDATED}" "${CONFIG.OSH_PBF_URL}" 2>&1; then
+		echo "ERROR: Failed to download OSH PBF file."
+		echo "This may be due to:"
+		echo "  - Invalid OSM credentials"
+		echo "  - Network connectivity issues"
+		echo "  - The OSH PBF URL is incorrect or inaccessible"
+		rm -f "${COOKIES}" "${OSH_UPDATED}"
+		exit 1
+	fi
+
+	# Check if downloaded file is actually a PBF file (not an HTML error page)
+	if [ -f "${OSH_UPDATED}" ]; then
+		file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
+		if echo "$file_type" | grep -qi "html\|text"; then
+			echo "ERROR: Downloaded file appears to be an HTML page instead of a PBF file."
+			echo "This usually means authentication failed. The file contains:"
+			head -5 "${OSH_UPDATED}"
+			echo ""
+			echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
+			rm -f "${COOKIES}" "${OSH_UPDATED}"
+			exit 1
+		fi
+		if [ ! -s "${OSH_UPDATED}" ]; then
+			echo "ERROR: Downloaded file is empty."
+			rm -f "${COOKIES}" "${OSH_UPDATED}"
+			exit 1
+		fi
+	fi
+
+	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" "${CONFIG.OSH_PBF_URL.replace("-internal.osh.pbf", ".poly")}" 2>&1; then
+		echo "WARNING: Failed to download polygon file, but continuing with PBF file."
+	fi
 	rm -f "${COOKIES}"
 	prev_osh="${OSH_UPDATED}"
 	prev_timestamp=""
@@ -102,6 +145,11 @@ curtime=$(date -d '3 hours ago' -Iseconds --utc)
 echo \${curtime/"+00:00"/"Z"} > ${CONFIG.WORK_DIR}/osh_timestamp
 echo "Done"
 `;
+
+// Ensure work directory exists
+if (!fs.existsSync(CONFIG.WORK_DIR)) {
+	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
+}
 
 fs.writeFile(OUTPUT_SCRIPT, script, { mode: 0o766 }, err => {
 	if(err) { throw new Error(err); }

@@ -16,35 +16,100 @@ case $command in
     ;;
 "init")
     npm run pbf:update $otherArgs
-    ./db/11_pbf_update_tmp.sh
+    if [ -f "/tmp/pdm/11_pbf_update_tmp.sh" ]; then
+        /tmp/pdm/11_pbf_update_tmp.sh
+    elif [ -f "./db/11_pbf_update_tmp.sh" ]; then
+        ./db/11_pbf_update_tmp.sh
+    else
+        echo "ERROR: Script 11_pbf_update_tmp.sh not found"
+        exit 1
+    fi
     npm run features:update $otherArgs
-    ./db/21_features_update_tmp.sh init
+    if [ -f "/tmp/pdm/21_features_update_tmp.sh" ]; then
+        /tmp/pdm/21_features_update_tmp.sh init
+    elif [ -f "./db/21_features_update_tmp.sh" ]; then
+        ./db/21_features_update_tmp.sh init
+    else
+        echo "ERROR: Script 21_features_update_tmp.sh not found"
+        exit 1
+    fi
     npm run projects:update $otherArgs
-    ./db/31_projects_update_tmp.sh $otherArgs
+    if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
+        /tmp/pdm/31_projects_update_tmp.sh $otherArgs
+    elif [ -f "./db/31_projects_update_tmp.sh" ]; then
+        ./db/31_projects_update_tmp.sh $otherArgs
+    else
+        echo "ERROR: Script 31_projects_update_tmp.sh not found"
+        exit 1
+    fi
     ;;
 "run")
-    npm run projects:update $otherArgs
+    npm run start
+    ;;
+"start")
     npm run start
     ;;
 "update_pbf")
     npm run pbf:update $otherArgs
-    ./db/11_pbf_update_tmp.sh
+    if [ -f "/tmp/pdm/11_pbf_update_tmp.sh" ]; then
+        /tmp/pdm/11_pbf_update_tmp.sh
+    elif [ -f "./db/11_pbf_update_tmp.sh" ]; then
+        ./db/11_pbf_update_tmp.sh
+    else
+        echo "ERROR: Script 11_pbf_update_tmp.sh not found"
+        exit 1
+    fi
     ;;
 "update_features")
     npm run features:update $otherArgs
-    ./db/21_features_update_tmp.sh $otherArgs
+    if [ -f "/tmp/pdm/21_features_update_tmp.sh" ]; then
+        /tmp/pdm/21_features_update_tmp.sh $otherArgs
+    elif [ -f "./db/21_features_update_tmp.sh" ]; then
+        ./db/21_features_update_tmp.sh $otherArgs
+    else
+        echo "ERROR: Script 21_features_update_tmp.sh not found"
+        exit 1
+    fi
     ;;
 "update_projects")
     npm run projects:update $otherArgs
-    ./db/31_projects_update_tmp.sh $otherArgs
+    if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
+        /tmp/pdm/31_projects_update_tmp.sh $otherArgs
+    elif [ -f "./db/31_projects_update_tmp.sh" ]; then
+        ./db/31_projects_update_tmp.sh $otherArgs
+    else
+        echo "ERROR: Script 31_projects_update_tmp.sh not found"
+        exit 1
+    fi
     ;;
 "update_daily")
     npm run pbf:update $otherArgs
-    ./db/11_pbf_update_tmp.sh
+    if [ -f "/tmp/pdm/11_pbf_update_tmp.sh" ]; then
+        /tmp/pdm/11_pbf_update_tmp.sh
+    elif [ -f "./db/11_pbf_update_tmp.sh" ]; then
+        ./db/11_pbf_update_tmp.sh
+    else
+        echo "ERROR: Script 11_pbf_update_tmp.sh not found"
+        exit 1
+    fi
     npm run features:update $otherArgs
-    ./db/21_features_update_tmp.sh $otherArgs
+    if [ -f "/tmp/pdm/21_features_update_tmp.sh" ]; then
+        /tmp/pdm/21_features_update_tmp.sh $otherArgs
+    elif [ -f "./db/21_features_update_tmp.sh" ]; then
+        ./db/21_features_update_tmp.sh $otherArgs
+    else
+        echo "ERROR: Script 21_features_update_tmp.sh not found"
+        exit 1
+    fi
     npm run projects:update $otherArgs
-    ./db/31_projects_update_tmp.sh $otherArgs
+    if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
+        /tmp/pdm/31_projects_update_tmp.sh $otherArgs
+    elif [ -f "./db/31_projects_update_tmp.sh" ]; then
+        ./db/31_projects_update_tmp.sh $otherArgs
+    else
+        echo "ERROR: Script 31_projects_update_tmp.sh not found"
+        exit 1
+    fi
     ;;
 "uninstall")
     npm run features:update $otherArgs

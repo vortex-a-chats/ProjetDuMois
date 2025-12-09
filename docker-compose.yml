@@ -8,30 +8,45 @@ services:
       - "5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./db/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
     environment:
       - POSTGRES_DB=pdm
       - POSTGRES_PASSWORD=pgpassword
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
       
   pdm:
     image: pdm/server:latest
     restart: always
     depends_on:
-      - pgsqldb
+      pgsqldb:
+        condition: service_healthy
     networks:
       - oim-internal
     ports:
       - "3000:3000"
     volumes:
       - pdm-data:/data/files/pdm
+      - ./projects:/opt/pdm/projects:ro
+      - ./website:/opt/pdm/website:ro
+      - ./db:/opt/pdm/db
+      - ./package.json:/opt/pdm/package.json:ro
+      - ./dockerfiles/docker-entrypoint.sh:/opt/pdm/docker-entrypoint.sh:ro
+      - ./lib:/opt/pdm/lib:ro
     environment:
       - DB_URL=postgres://postgres:pgpassword@pgsqldb:5432/pdm
-    command: "run"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["cd /opt/pdm && npm run start"]
 
   pdm-tileserv:
     image: pramsey/pg_tileserv:latest
     restart: always
     depends_on:
-      - pgsqldb
+      pgsqldb:
+        condition: service_healthy
     networks:
       - oim-internal
     ports:
