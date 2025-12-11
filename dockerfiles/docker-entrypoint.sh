@@ -272,8 +272,8 @@ NODE
     ERROR_COUNT=0
     while IFS='|' read -r PROJ TAGS; do
         [ -z "$PROJ" ] && continue
-        echo "   => Calculate quality completion for $PROJ"
-        SQL="SELECT pdm_calculate_quality_completion('${PROJ//\'/\'\'}', ARRAY[${TAGS}], NOW()::timestamp);"
+        echo "   => Calculate quality completion for $PROJ (all dates)"
+        SQL="SELECT pdm_calculate_quality_completion_all_dates('${PROJ//\'/\'\'}', ARRAY[${TAGS}]);"
         if ! psql -d "$DB_URL" -v ON_ERROR_STOP=1 -c "$SQL"; then
             echo "   ❌ Erreur lors du calcul pour $PROJ"
             ERROR_COUNT=$((ERROR_COUNT + 1))
@@ -317,6 +317,53 @@ NODE
     else
         echo "ERROR: Script 31_projects_update_tmp.sh not found"
         exit 1
+    fi
+    echo ""
+    echo "== Calculate quality completion scores"
+    echo "Collecte des projets avec mesure de qualité..."
+    PROJECTS_WITH_TAGS=$(node - <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const projectsDir = path.join(process.cwd(), 'projects');
+const results = [];
+fs.readdirSync(projectsDir).forEach((proj) => {
+  const infoPath = path.join(projectsDir, proj, 'info.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+    const tags = data.quality && Array.isArray(data.quality.required_tags) ? data.quality.required_tags : [];
+    if (tags.length > 0) {
+      const tagList = tags.map(t => "'" + String(t).replace(/'/g, "''") + "'").join(',');
+      results.push(proj + "|" + tagList);
+    }
+  } catch (e) {
+    // ignore invalid json or missing files
+  }
+});
+results.forEach(r => console.log(r));
+NODE
+)
+    if [ -n "$PROJECTS_WITH_TAGS" ]; then
+        ERROR_COUNT=0
+        while IFS='|' read -r PROJ TAGS; do
+            [ -z "$PROJ" ] && continue
+            echo "   => Calculate quality completion for $PROJ (all dates)"
+            SQL="SELECT pdm_calculate_quality_completion_all_dates('${PROJ//\'/\'\'}', ARRAY[${TAGS}]);"
+            if ! psql -d "$DB_URL" -v ON_ERROR_STOP=1 -c "$SQL"; then
+                echo "   ❌ Erreur lors du calcul pour $PROJ"
+                ERROR_COUNT=$((ERROR_COUNT + 1))
+            else
+                echo "   ✓ Calcul réussi pour $PROJ"
+            fi
+        done <<< "$PROJECTS_WITH_TAGS"
+        if [ $ERROR_COUNT -gt 0 ]; then
+            echo ""
+            echo "⚠️  $ERROR_COUNT projet(s) ont échoué lors du calcul de complétion"
+        else
+            echo ""
+            echo "✓ Tous les projets ont été traités avec succès"
+        fi
+    else
+        echo "Aucun projet avec quality.required_tags détecté."
     fi
     ;;
 "uninstall")

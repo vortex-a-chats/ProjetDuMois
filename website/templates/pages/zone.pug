@@ -1,0 +1,246 @@
+extends ../layout.pug
+
+block head
+	script(src="/lib/maplibre-gl/maplibre-gl.js")
+	script(src="/lib/chart.js/chart.min.js")
+	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
+
+block navbar
+	a(href=`/projects/${project.id}`)
+		i.fa.fa-arrow-left(title=__("Retour au projet"))
+		span= __("Retour au projet")
+	a(href="#statistics")
+		i.fa.fa-chart-bar(title=__("Statistiques"))
+		span= __("Statistiques")
+
+block content
+	div.container
+		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark
+			h1.font-italic= boundary.name
+			p.lead.mb-0
+				= __("Zone administrative")
+				| : 
+				- var adminLevelText = boundary.admin_level === 4 ? __("Région") : boundary.admin_level === 6 ? __("Département") : __("Commune")
+				= adminLevelText
+				br
+				= __("Projet")
+				| : 
+				a.text-white(href=`/projects/${project.id}`)= project.title
+
+	div.container-fluid.py-5.pdm-section-highlight
+		div.container
+			div.row
+				div.col-12.mb-4
+					h2#statistics= __("Statistiques de la zone")
+					
+					div.row.mb-4#zone-stats-blocks
+						div.col.text-center
+							div.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+
+					div.row.mb-4
+						div.col-12.mb-2
+							h3= __("Évolution du nombre d'objets")
+							div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+							canvas#zone-chart-counts.w-100(height="300")
+
+					div.row.mb-4#zone-chart-quality-container
+						div.col-12.mb-2
+							h3= __("Évolution de la qualité")
+							div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+							canvas#zone-chart-quality.w-100(height="300")
+
+					div.row.mb-4#zone-other-projects
+						div.col-12
+							h3= __("Autres projets dans cette zone")
+							div#zone-other-projects-list
+
+					div.row.mb-4
+						div.col-12
+							h3= __("Actions")
+							div.btn-group(role="group")
+								button#zone-josm-btn.btn.btn-primary(type="button")
+									i.fa.fa-edit.mr-2
+									= __("Ouvrir dans JOSM")
+								button#zone-csv-btn.btn.btn-secondary(type="button")
+									i.fa.fa-download.mr-2
+									= __("Exporter en CSV")
+
+					div.row.mb-4
+						div.col-12
+							h3= __("API")
+							div.card
+								div.card-body
+									p.card-text
+										= __("Pour obtenir les statistiques de cette zone via l'API :")
+									code
+										= `GET ${CONFIG.OSM_URL.replace('https://www.openstreetmap.org', '')}/projects/${project.id}/zones/${boundary.id}/stats`
+									p.card-text.mt-2
+										= __("Exemple pour une ville ou un département :")
+									code
+										= `curl "${CONFIG.OSM_URL.replace('https://www.openstreetmap.org', '')}/projects/${project.id}/zones/${boundary.id}/stats"`
+
+script.
+	const projectId = !{JSON.stringify(project.id)};
+	const boundaryId = !{JSON.stringify(boundary.id)};
+	const boundaryName = !{JSON.stringify(boundary.name)};
+	const boundaryAdminLevel = !{JSON.stringify(boundary.admin_level)};
+	const projectTagFilter = !{JSON.stringify((project.database && project.database.osmium_tag_filter) ? project.database.osmium_tag_filter : '')};
+
+	fetch(`/projects/${projectId}/zones/${boundaryId}/stats`)
+		.then(res => res.json())
+		.then(data => {
+			// Stats blocks
+			const statsBlocks = document.getElementById("zone-stats-blocks");
+			statsBlocks.innerHTML = '';
+			
+			const addBlock = (value, label) => {
+				const div = document.createElement("div");
+				div.classList.add("col-md-3", "mb-3");
+				div.innerHTML = `
+					<div class="card text-center">
+						<div class="card-body">
+							<h5 class="card-title">${value}</h5>
+							<p class="card-text text-muted">${label}</p>
+						</div>
+					</div>
+				`;
+				statsBlocks.appendChild(div);
+			};
+
+			if(data.counts) {
+				if(data.counts.current != null) {
+					addBlock(data.counts.current.toLocaleString('fr-FR'), "#{__('Objets actuels')} 📊");
+				}
+				if(data.counts.added != null) {
+					addBlock("+" + data.counts.added.toLocaleString('fr-FR'), "#{__('Objets ajoutés')} 📈");
+				}
+				if(data.counts.addedWeek != null) {
+					addBlock("+" + data.counts.addedWeek.toLocaleString('fr-FR'), "#{__('Ajouts sur 7 jours')} 📆");
+				}
+				if(data.counts.added30d != null) {
+					addBlock("+" + data.counts.added30d.toLocaleString('fr-FR'), "#{__('Ajouts sur 30 jours')} 🗓️");
+				}
+			}
+
+			// Counts chart
+			if(data.counts && data.counts.chart && data.counts.chart.length > 0) {
+				const ctx = document.getElementById("zone-chart-counts").getContext("2d");
+				const chart = new Chart(ctx, {
+					type: "line",
+					data: {
+						datasets: data.counts.chart
+					},
+					options: {
+						responsive: true,
+						scales: {
+							xAxes: [{
+								type: 'time',
+								time: {
+									tooltipFormat: "DD/MM/YYYY",
+									displayFormats: { day: "DD/MM/YYYY" }
+								}
+							}],
+							yAxes: [{
+								ticks: {
+									beginAtZero: true
+								}
+							}]
+						}
+					}
+				});
+				document.querySelector("#zone-chart-counts").parentElement.querySelector(".spinner-border").remove();
+			}
+
+			// Quality chart
+			if(data.quality && data.quality.chart && data.quality.chart.length > 0) {
+				const ctx = document.getElementById("zone-chart-quality").getContext("2d");
+				const chart = new Chart(ctx, {
+					type: "line",
+					data: {
+						datasets: data.quality.chart
+					},
+					options: {
+						responsive: true,
+						scales: {
+							xAxes: [{
+								type: 'time',
+								time: {
+									tooltipFormat: "DD/MM/YYYY",
+									displayFormats: { day: "DD/MM/YYYY" }
+								}
+							}],
+							yAxes: [{
+								ticks: {
+									beginAtZero: true
+								}
+							}]
+						}
+					}
+				});
+				document.querySelector("#zone-chart-quality").parentElement.querySelector(".spinner-border").remove();
+			} else {
+				document.getElementById("zone-chart-quality-container").classList.add("d-none");
+			}
+
+			// Other projects
+			if(data.otherProjects && data.otherProjects.length > 0) {
+				const list = document.getElementById("zone-other-projects-list");
+				const ul = document.createElement("ul");
+				ul.classList.add("list-group");
+				data.otherProjects.forEach(proj => {
+					const li = document.createElement("li");
+					li.classList.add("list-group-item");
+					li.innerHTML = `<a href="/projects/${proj.id}/zones/${boundaryId}">${proj.title}</a>`;
+					ul.appendChild(li);
+				});
+				list.appendChild(ul);
+			} else {
+				document.getElementById("zone-other-projects").classList.add("d-none");
+			}
+
+			// JOSM button
+			document.getElementById("zone-josm-btn").addEventListener("click", () => {
+				const tagParts = projectTagFilter.split('=');
+				const tagKey = tagParts[0] ? tagParts[0].split('/').pop() : '';
+				const tagValue = tagParts[1] || '';
+				
+				// Build Overpass query to get all objects in the boundary with project tags
+				let overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;`;
+				if(tagKey && tagValue) {
+					overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;(node["${tagKey}"="${tagValue}"](area);way["${tagKey}"="${tagValue}"](area);relation["${tagKey}"="${tagValue}"](area););out geom;`;
+				}
+				
+				const josmUrl = `http://localhost:8111/import?url=${encodeURIComponent(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`)}`;
+				window.open(josmUrl, '_blank');
+			});
+
+			// CSV export button
+			document.getElementById("zone-csv-btn").addEventListener("click", () => {
+				fetch(`/projects/${projectId}/zones/${boundaryId}/objects`)
+					.then(res => res.json())
+					.then(objects => {
+						const csv = [
+							['osm_id', 'name', 'tags'].join(','),
+							...objects.map(obj => [
+								obj.osm_id,
+								obj.name || '',
+								JSON.stringify(obj.tags || {})
+							].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+						].join('\n');
+						
+						const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+						const link = document.createElement('a');
+						link.href = URL.createObjectURL(blob);
+						link.download = `${projectId}_${boundaryId}_objects.csv`;
+						link.click();
+					})
+					.catch(err => {
+						console.error('Error exporting CSV:', err);
+						alert("#{__('Erreur lors de l\'export CSV')}");
+					});
+			});
+		})
+		.catch(err => {
+			console.error('Error loading zone stats:', err);
+		});
+

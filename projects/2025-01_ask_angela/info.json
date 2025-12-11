@@ -1,0 +1,131 @@
+{
+  "id": "2025-01_ask_angela",
+  "title": "Ask for Angela",
+  "start_date": "2025-01-01",
+  "end_date": "2026-06-30",
+  "summary": "Ask for Angela est un système de sécurité permettant aux personnes en situation de détresse de demander de l'aide discrètement dans les établissements. Cartographions ensemble tous les établissements Ask for Angela dans OpenStreetMap ! #AskForAngela #ProjetDuMois",
+  "image": "https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?w=800&auto=format&fit=crop",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:harassment_prevention%3Dask_angela"
+  },
+  "quality": {
+    "required_tags": [
+      "name",
+      "harassment_prevention"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/harassment_prevention=ask_angela",
+    "imposm": {
+      "types": ["point", "polygon"],
+      "mapping": {
+        "harassment_prevention": ["ask_angela"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Établissement Ask for Angela à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["ask for angela", "ask angela", "harassment", "sécurité", "aide", "help"]
+    },
+    {
+      "source": "osm",
+      "name": "Établissement Ask for Angela dans OSM",
+      "description": "Cet établissement existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    },
+    {
+      "source": "background",
+      "tiles": "mapillary",
+      "name": "Photos de rue",
+      "icon": "picture"
+    },
+    {
+      "source": "stats"
+    }
+  ],
+  "statistics": {
+    "count": true,
+    "feature_name": "établissements Ask for Angela",
+    "points": {
+      "add": 3,
+      "edit": 1,
+      "note": 1
+    }
+  },
+  "editors": {
+    "all": {
+      "comment": "Ajout d'un établissement Ask for Angela",
+      "hashtags": "projetdumois,projetdumoisfr,askforangela"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "harassment_prevention": "ask_angela",
+            "source": "*"
+          }
+        },
+        {
+          "type": "text",
+          "name": "Nom de l'établissement",
+          "tag": "name"
+        },
+        {
+          "type": "select",
+          "name": "Type d'établissement",
+          "tag": "amenity",
+          "optional": true,
+          "values": [
+            {"v": "bar", "l": "Bar"},
+            {"v": "restaurant", "l": "Restaurant"},
+            {"v": "cafe", "l": "Café"},
+            {"v": "pub", "l": "Pub"},
+            {"v": "nightclub", "l": "Boîte de nuit"},
+            {"v": "fast_food", "l": "Restaurant rapide"},
+            {"v": "cinema", "l": "Cinéma"},
+            {"v": "theatre", "l": "Théâtre"}
+          ]
+        },
+        {
+          "type": "text",
+          "name": "Téléphone",
+          "tag": "contact:phone",
+          "optional": true
+        },
+        {
+          "type": "text",
+          "name": "Site web",
+          "tag": "contact:website",
+          "optional": true
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true,
+          "description": "Horaires, informations pratiques..."
+        }
+      ],
+      "title": {
+        "add": "Ajouter un établissement Ask for Angela manquant",
+        "edit": "Compléter cet établissement Ask for Angela"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

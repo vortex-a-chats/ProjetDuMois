@@ -1,5 +1,8 @@
 extends ../layout.pug
 
+block head
+	script(src="/lib/chart.js/chart.min.js")
+	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
 
 block navbar
 	a(href="#others")
@@ -11,6 +14,45 @@ block navbar
 
 
 block content
+	//- Global progress chart and podiums
+	div.container-fluid.py-5.mb-3.pdm-section-highlight
+		div.container
+			div.row.mb-4
+				div.col-12
+					h2.blog-post-title.mb-3
+						i.fa.fa-chart-line.mr-2(style="font-size: 2.1rem")
+						= __("Vue d'ensemble")
+					
+					//- Global progress chart
+					div.row.mb-4
+						div.col-12
+							h3= __("Progression de tous les projets")
+							div(style="position: relative;")
+								div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+								canvas#all-projects-chart.w-100(height="400")
+								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+					
+					//- Podiums
+					div.row
+						div.col-md-6.mb-4
+							h3
+								= __("Top 3 contributions (30 jours)")
+								button.btn.btn-sm.btn-link.ml-2(type="button" data-toggle="modal" data-target="#podium-contributions-modal" style="padding: 0; vertical-align: baseline;")
+									i.fa.fa-info-circle
+							div#podium-contributions.row.justify-content-center.align-items-end(style="min-height: 200px;")
+								div.col.text-center
+									div.spinner-border.text-primary(role="status")
+						
+						div.col-md-6.mb-4
+							h3
+								= __("Top 3 qualité (30 jours)")
+								button.btn.btn-sm.btn-link.ml-2(type="button" data-toggle="modal" data-target="#podium-quality-modal" style="padding: 0; vertical-align: baseline;")
+									i.fa.fa-info-circle
+							div#podium-quality.row.justify-content-center.align-items-end(style="min-height: 200px;")
+								div.col.text-center
+									div.spinner-border.text-primary(role="status")
+
 	if currentProjects.length > 0
 		div.container.pb-5
 			//- Project summary
@@ -41,6 +83,17 @@ block content
 										div.mt-2
 											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
 												= `${count.toLocaleString('fr-FR')} objets`
+											if proj.stats && proj.stats.etaDays !== null && proj.stats.etaDays !== undefined && proj.stats.remaining > 0
+												- var etaDays = proj.stats.etaDays
+												- var etaYears = etaDays / 365
+												- var etaText = etaYears >= 1 ? Math.round(etaYears * 10) / 10 + " ans" : Math.ceil(etaDays) + " jours"
+												- var showFire = etaDays < 365
+												- var etaTooltip = "Temps estimé pour dépasser le nombre d'objets à intégrer (" + proj.stats.remaining.toLocaleString('fr-FR') + " objets) selon l'activité des 6 derniers mois (" + Math.round(proj.stats.last180Days / 180) + " objets/jour en moyenne)"
+												div.mt-1
+													span.badge(style=`background-color: ${showFire ? '#ff6b35' : '#4a90e2'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=etaTooltip)
+														if showFire
+															= "🔥 "
+														= "ETA: " + etaText
 									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
 										- // Afficher "0 objets" pour les projets sans données encore
 										div.mt-2
@@ -79,8 +132,205 @@ block content
 										div.mt-1
 											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
 												= `${count.toLocaleString('fr-FR')} objets`
+											if proj.stats && proj.stats.etaDays !== null && proj.stats.etaDays !== undefined && proj.stats.remaining > 0
+												- var etaDays = proj.stats.etaDays
+												- var etaYears = etaDays / 365
+												- var etaText = etaYears >= 1 ? Math.round(etaYears * 10) / 10 + " ans" : Math.ceil(etaDays) + " jours"
+												- var showFire = etaDays < 365
+												- var etaTooltip = "Temps estimé pour dépasser le nombre d'objets à intégrer (" + proj.stats.remaining.toLocaleString('fr-FR') + " objets) selon l'activité des 6 derniers mois (" + Math.round(proj.stats.last180Days / 180) + " objets/jour en moyenne)"
+												div.mt-1
+													span.badge(style=`background-color: ${showFire ? '#ff6b35' : '#4a90e2'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=etaTooltip)
+														if showFire
+															= "🔥 "
+														= "ETA: " + etaText
 									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
 										- // Afficher "0 objets" pour les projets sans données encore
 										div.mt-1
 											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible pour les 30 derniers jours")
 												= "0 objet"
+
+	//- Modals for podium explanations
+	div.modal.fade#podium-contributions-modal(tabindex="-1" role="dialog")
+		div.modal-dialog(role="document")
+			div.modal-content
+				div.modal-header
+					h5.modal-title= __("Calcul du podium contributions")
+					button.close(type="button" data-dismiss="modal" aria-label="Close")
+						span(aria-hidden="true") &times;
+				div.modal-body
+					p= __("Ce podium classe les projets selon le nombre d'objets ajoutés au cours des 30 derniers jours.")
+					p= __("Le calcul est effectué en comparant le nombre d'objets actuel avec le nombre d'objets il y a 30 jours :")
+					ul
+						li= __("Nombre d'objets ajoutés = Nombre actuel - Nombre il y a 30 jours")
+						li= __("Seuls les projets avec au moins un objet ajouté sont pris en compte")
+						li= __("Les projets sont classés par ordre décroissant du nombre d'objets ajoutés")
+					p.text-muted= __("Les données sont mises à jour quotidiennement.")
+
+	div.modal.fade#podium-quality-modal(tabindex="-1" role="dialog")
+		div.modal-dialog(role="document")
+			div.modal-content
+				div.modal-header
+					h5.modal-title= __("Calcul du podium qualité")
+					button.close(type="button" data-dismiss="modal" aria-label="Close")
+						span(aria-hidden="true") &times;
+				div.modal-body
+					p= __("Ce podium classe les projets selon l'augmentation de leur score de qualité moyen au cours des 30 derniers jours.")
+					p= __("Le score de qualité moyen est calculé en fonction des tags requis définis dans la configuration de chaque projet :")
+					ul
+						li= __("Chaque objet a un pourcentage de complétion basé sur le nombre de tags requis présents")
+						li= __("Le score moyen = moyenne des pourcentages de complétion de tous les objets du projet")
+						li= __("Augmentation = Score moyen actuel - Score moyen il y a 30 jours")
+						li= __("Seuls les projets avec une augmentation positive sont pris en compte")
+					p.text-muted= __("Les données sont mises à jour quotidiennement.")
+
+	script.
+		// Load all projects progress chart
+		fetch('/api/all-projects-progress')
+		.then(res => res.json())
+		.then(data => {
+			const chartContainer = document.getElementById("all-projects-chart").parentElement;
+			const ctx = document.getElementById("all-projects-chart").getContext("2d");
+			
+			// Generate colors for each project
+			const colors = [
+				'#388E3C', '#1976D2', '#F57C00', '#7B1FA2', '#C2185B',
+				'#0097A7', '#5D4037', '#455A64', '#E64A19', '#00796B',
+				'#0288D1', '#F9A825', '#AD1457', '#6A1B9A', '#00695C'
+			];
+			
+			const datasets = data.projects.map((proj, index) => ({
+				label: proj.title,
+				data: proj.data,
+				fill: false,
+				borderColor: colors[index % colors.length],
+				lineTension: 0,
+				pointRadius: 0,
+				pointHoverRadius: 4
+			}));
+
+			const myChart = new Chart(ctx, {
+				type: "line",
+				data: { datasets: datasets },
+				options: {
+					responsive: true,
+					scales: {
+						xAxes: [{
+							type: 'time',
+							time: {
+								tooltipFormat: "DD/MM/YYYY",
+								displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+							}
+						}],
+						yAxes: [{
+							ticks: {
+								beginAtZero: true,
+								callback: function(value) {
+									return new Intl.NumberFormat('fr-FR').format(value);
+								}
+							}
+						}]
+					},
+					legend: {
+						display: true,
+						position: 'bottom'
+					}
+				}
+			});
+
+			chartContainer.querySelector(".spinner-charts").remove();
+		})
+		.catch(err => {
+			console.error('Error loading all projects progress:', err);
+			document.getElementById("all-projects-chart").parentElement.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique</p>';
+		});
+
+		// Load podiums
+		fetch('/api/podiums')
+		.then(res => res.json())
+		.then(data => {
+			// Contributions podium
+			const contribPodium = document.getElementById("podium-contributions");
+			const contribSpinner = contribPodium.querySelector(".spinner-border");
+			if(contribSpinner) contribSpinner.remove();
+			contribPodium.innerHTML = '';
+			
+			if(data.contributions && data.contributions.length > 0) {
+				const positions = [2, 1, 3]; // Middle, left, right
+				const heights = [200, 150, 120]; // Gold, silver, bronze
+				const colors = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, silver, bronze
+				const medals = ['🥇', '🥈', '🥉'];
+				
+				data.contributions.forEach((proj, index) => {
+					const pos = positions[index];
+					const height = heights[index];
+					const color = colors[index];
+					const medal = medals[index];
+					
+					const div = document.createElement("div");
+					div.classList.add("col-md-4", "text-center");
+					div.style.order = pos;
+					
+					const objetsText = "#{__('objets')}";
+					div.innerHTML = 
+						'<div style="height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
+							'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
+							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">' + proj.added.toLocaleString('fr-FR') + '</div>' +
+							'<div style="color: white; font-size: 0.9rem;">' + objetsText + '</div>' +
+						'</div>' +
+						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit;">' +
+							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; margin-top: 10px;">' +
+							'<div style="font-weight: bold; margin-top: 5px;">' + proj.title + '</div>' +
+						'</a>';
+					
+					contribPodium.appendChild(div);
+				});
+			} else {
+				contribPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+			}
+
+			// Quality podium
+			const qualityPodium = document.getElementById("podium-quality");
+			const qualitySpinner = qualityPodium.querySelector(".spinner-border");
+			if(qualitySpinner) qualitySpinner.remove();
+			qualityPodium.innerHTML = '';
+			
+			if(data.quality && data.quality.length > 0) {
+				const positions = [2, 1, 3];
+				const heights = [200, 150, 120];
+				const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+				const medals = ['🥇', '🥈', '🥉'];
+				
+				data.quality.forEach((proj, index) => {
+					const pos = positions[index];
+					const height = heights[index];
+					const color = colors[index];
+					const medal = medals[index];
+					
+					const div = document.createElement("div");
+					div.classList.add("col-md-4", "text-center");
+					div.style.order = pos;
+					
+					const ameliorationText = "#{__('amélioration')}";
+					div.innerHTML = 
+						'<div style="height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
+							'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
+							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">+' + proj.increase.toFixed(1) + '%</div>' +
+							'<div style="color: white; font-size: 0.9rem;">' + ameliorationText + '</div>' +
+						'</div>' +
+						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit;">' +
+							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; margin-top: 10px;">' +
+							'<div style="font-weight: bold; margin-top: 5px;">' + proj.title + '</div>' +
+							'<div style="font-size: 0.85rem; color: #666; margin-top: 3px;">' + proj.past.toFixed(1) + '% → ' + proj.current.toFixed(1) + '%</div>' +
+						'</a>';
+					
+					qualityPodium.appendChild(div);
+				});
+			} else {
+				qualityPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+			}
+		})
+		.catch(err => {
+			console.error('Error loading podiums:', err);
+			document.getElementById("podium-contributions").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+			document.getElementById("podium-quality").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+		});

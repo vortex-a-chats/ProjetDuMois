@@ -77,7 +77,11 @@ exports.queryParams = (obj) => {
 
 // Map style JSON
 exports.getMapStyle = (p) => {
-	return fetch(CONFIG.VECT_STYLE)
+	const styleUrl = CONFIG.VECT_STYLE || CONFIG.MAPBOX_STYLE;
+	if (!styleUrl) {
+		return Promise.resolve(getFallbackStyle());
+	}
+	return fetch(styleUrl)
 	.then(res => res.ok ? res.json() : getFallbackStyle())
 	.then(style => {
 		const legend = [];
@@ -178,6 +182,7 @@ exports.getMapStyle = (p) => {
 				const id = `${ds.source}_${dsid}`;
 				const color = ds.color || "gray";
 				const layer = ds.layer || `public.pdm_project_${p.id.split("_").pop()}`;
+				const sourceLayer = layer.split(".").pop(); // Remove schema prefix for source-layer
 
 				sources[id] = Object.assign({
 					tiles: [ `${CONFIG.PDM_TILES_URL}/${layer}/{z}/{x}/{y}.mvt` ],
@@ -192,7 +197,7 @@ exports.getMapStyle = (p) => {
 					id: id,
 					source: id,
 					type: "circle",
-					"source-layer": sources[id].layers[0],
+					"source-layer": sourceLayer,
 					paint: {
 						"circle-color": color,
 						"circle-opacity": [ "interpolate", ["linear"], ["zoom"], 9, 0, 10, 1 ],
@@ -210,6 +215,7 @@ exports.getMapStyle = (p) => {
 				const id = `${ds.source}_${dsid}`;
 				const color = ds.color || "#FF7043"; // Orange
 				const layer = `public.pdm_project_${p.id.split("_").pop()}_compare_tiles_filtered`;
+				const sourceLayer = layer.split(".").pop(); // Remove schema prefix for source-layer
 
 				sources[id] = Object.assign({
 					tiles: [ `${CONFIG.PDM_TILES_URL}/${layer}/{z}/{x}/{y}.mvt` ],
@@ -224,7 +230,7 @@ exports.getMapStyle = (p) => {
 					id: id,
 					source: id,
 					type: "circle",
-					"source-layer": sources[id].layers[0],
+					"source-layer": sourceLayer,
 					paint: {
 						"circle-color": color,
 						"circle-opacity": [ "interpolate", ["linear"], ["zoom"], 9, 0, 10, 1 ],
@@ -242,6 +248,7 @@ exports.getMapStyle = (p) => {
 				const id = `${ds.source}_${dsid}`;
 				const color = ds.color || "#2E7D32"; // Green
 				const layer = `public.pdm_project_${p.id.split("_").pop()}`;
+				const sourceLayer = layer.split(".").pop(); // Remove schema prefix for source-layer
 
 				sources[id] = Object.assign({
 					tiles: [ `${CONFIG.PDM_TILES_URL}/${layer}/{z}/{x}/{y}.mvt` ],
@@ -256,7 +263,7 @@ exports.getMapStyle = (p) => {
 					id: id,
 					source: id,
 					type: "circle",
-					"source-layer": sources[id].layers[0],
+					"source-layer": sourceLayer,
 					paint: Object.assign({ "circle-stroke-color": color }, circlePaint)
 				});
 
@@ -327,7 +334,11 @@ exports.getMapStyle = (p) => {
 
 // Map style JSON for statistics
 exports.getMapStatsStyle = (p, maxPerLevel) => {
-	return fetch(CONFIG.VECT_STYLE)
+	const styleUrl = CONFIG.VECT_STYLE || CONFIG.MAPBOX_STYLE;
+	if (!styleUrl) {
+		return Promise.resolve(getFallbackStyle());
+	}
+	return fetch(styleUrl)
 	.then(res => res.ok ? res.json() : getFallbackStyle())
 	.then(style => {
 		let sources = {};

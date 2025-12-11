@@ -266,6 +266,37 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to calculate quality completion for all dates where feature counts exist
+CREATE OR REPLACE FUNCTION pdm_calculate_quality_completion_all_dates(
+    p_project VARCHAR,
+    p_required_tags TEXT[]
+) RETURNS VOID AS $$
+DECLARE
+    v_date_record RECORD;
+    v_count INT;
+BEGIN
+    -- Get all dates where feature counts exist for this project
+    FOR v_date_record IN 
+        SELECT DISTINCT ts 
+        FROM pdm_feature_counts 
+        WHERE project = p_project 
+        ORDER BY ts
+    LOOP
+        -- Calculate completion for this date
+        PERFORM pdm_calculate_quality_completion(p_project, p_required_tags, v_date_record.ts);
+    END LOOP;
+    
+    -- Also calculate for the current date if not already done
+    IF NOT EXISTS (
+        SELECT 1 FROM pdm_quality_stats 
+        WHERE project = p_project AND ts::date = CURRENT_DATE
+    ) THEN
+        PERFORM pdm_calculate_quality_completion(p_project, p_required_tags, NOW()::timestamp);
+    END IF;
+    
+END;
+$$ LANGUAGE plpgsql;
+
 -- Function to generate badges for a single user and project
 CREATE OR REPLACE FUNCTION pdm_get_badges(the_project VARCHAR, the_userid BIGINT) RETURNS TABLE (id VARCHAR, name VARCHAR, description VARCHAR, acquired BOOLEAN, progress INT) AS $$
 DECLARE

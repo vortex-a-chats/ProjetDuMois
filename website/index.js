@@ -96,7 +96,7 @@ app.get("/", (req, res) => {
     // Fetch completion statistics for all projects (even if statistics.count is not enabled)
     const allProjects = [...(p.current || []), ...(p.past || [])];
     const statsPromises = allProjects.map((proj) => {
-      // Calculate number of objects added in the last 30 days for all projects
+      // Calculate number of objects added in the last 30 days and 6 months for all projects
       return pool
         .query(
           `
@@ -114,12 +114,22 @@ app.get("/", (req, res) => {
               AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
             ORDER BY ts DESC
             LIMIT 1
+          ),
+          count_180_days_ago AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+              AND ts <= (SELECT ts - INTERVAL '180 days' FROM current_count)
+            ORDER BY ts DESC
+            LIMIT 1
           )
           SELECT 
             COALESCE((SELECT amount FROM current_count), 0) AS current_amount,
             COALESCE((SELECT amount FROM count_30_days_ago), 0) AS past_amount,
+            COALESCE((SELECT amount FROM count_180_days_ago), 0) AS past_180_amount,
             COALESCE((SELECT ts FROM current_count), NOW()) AS current_ts,
-            COALESCE((SELECT ts FROM count_30_days_ago), NOW() - INTERVAL '30 days') AS past_ts
+            COALESCE((SELECT ts FROM count_30_days_ago), NOW() - INTERVAL '30 days') AS past_ts,
+            COALESCE((SELECT ts FROM count_180_days_ago), NOW() - INTERVAL '180 days') AS past_180_ts
         `,
           [proj.id],
         )
@@ -131,17 +141,83 @@ app.get("/", (req, res) => {
           const row = results.rows[0];
           const currentAmount = parseInt(row.current_amount) || 0;
           const pastAmount = parseInt(row.past_amount) || 0;
+          const past180Amount = parseInt(row.past_180_amount) || 0;
           const last30Days = Math.max(0, currentAmount - pastAmount);
+          const last180Days = Math.max(0, currentAmount - past180Amount);
           
-          // Always return stats, even if 0 (to display for all projects)
-          return { 
-            id: proj.id, 
-            last30Days,
-            currentAmount,
-            pastAmount,
-            currentTs: row.current_ts,
-            pastTs: row.past_ts
-          };
+          // Calculate ETA based on 6 months activity rate
+          const dailyRate180 = last180Days > 0 ? last180Days / 180 : null;
+          
+          // Get remaining objects to import from osmose API
+          const importDatasource = (proj.datasources || []).find(
+            (ds) => ds.source === "osmose" && 
+            (ds.name?.toLowerCase().includes("importer") || ds.name?.toLowerCase().includes("à importer"))
+          );
+          
+          if (importDatasource && dailyRate180 && dailyRate180 > 0) {
+            const params = {
+              item: importDatasource.item,
+              class: importDatasource.class,
+              start_date: proj.start_date,
+              country: importDatasource.country,
+            };
+            return fetch(
+              `${CONFIG.OSMOSE_URL}/fr/issues/graph.json?${queryParams(params)}`,
+            )
+              .then((res) => res.json())
+              .then((osmoseData) => {
+                // Get the latest value (most recent date)
+                const dataEntries = Object.entries(osmoseData.data || {})
+                  .sort((a, b) => a[0].localeCompare(b[0])); // Sort by date
+                const latestValue = dataEntries.length > 0 
+                  ? parseInt(dataEntries[dataEntries.length - 1][1] || 0)
+                  : 0;
+                
+                let etaDays = null;
+                if (latestValue > 0 && dailyRate180 > 0) {
+                  etaDays = latestValue / dailyRate180;
+                }
+                
+                return { 
+                  id: proj.id, 
+                  last30Days,
+                  last180Days,
+                  currentAmount,
+                  pastAmount,
+                  currentTs: row.current_ts,
+                  pastTs: row.past_ts,
+                  remaining: latestValue,
+                  etaDays
+                };
+              })
+              .catch(() => {
+                // If osmose API fails, return stats without ETA
+                return { 
+                  id: proj.id, 
+                  last30Days,
+                  last180Days,
+                  currentAmount,
+                  pastAmount,
+                  currentTs: row.current_ts,
+                  pastTs: row.past_ts,
+                  remaining: null,
+                  etaDays: null
+                };
+              });
+          } else {
+            // No import datasource or no activity, return stats without ETA
+            return { 
+              id: proj.id, 
+              last30Days,
+              last180Days,
+              currentAmount,
+              pastAmount,
+              currentTs: row.current_ts,
+              pastTs: row.past_ts,
+              remaining: null,
+              etaDays: null
+            };
+          }
         })
         .catch(() => {
           return { id: proj.id, last30Days: null };
@@ -178,6 +254,193 @@ app.get("/", (req, res) => {
   else {
     res.redirect("/error/500");
   }
+});
+
+// API: All projects progress chart
+app.get("/api/all-projects-progress", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const allProjects = Object.values(projects);
+  
+  Promise.all(
+    allProjects.map((proj) => {
+      return pool
+        .query(
+          `
+          SELECT ts, amount
+          FROM pdm_feature_counts
+          WHERE project = $1
+          ORDER BY ts ASC
+        `,
+          [proj.id],
+        )
+        .then((results) => {
+          return {
+            id: proj.id,
+            title: proj.title,
+            icon: proj.icon,
+            data: results.rows.map((r) => ({
+              t: r.ts,
+              y: parseInt(r.amount) || 0,
+            })),
+          };
+        })
+        .catch(() => {
+          return {
+            id: proj.id,
+            title: proj.title,
+            icon: proj.icon,
+            data: [],
+          };
+        });
+    }),
+  )
+    .then((results) => {
+      res.json({
+        projects: results.filter((r) => r.data.length > 0),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching all projects progress:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API: Podiums (contributions and quality)
+app.get("/api/podiums", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const allProjects = Object.values(projects);
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  Promise.all([
+    // Contributions podium (last 30 days)
+    Promise.all(
+      allProjects.map((proj) => {
+        return pool
+          .query(
+            `
+            WITH current_count AS (
+              SELECT amount, ts
+              FROM pdm_feature_counts
+              WHERE project = $1
+              ORDER BY ts DESC
+              LIMIT 1
+            ),
+            count_30_days_ago AS (
+              SELECT amount, ts
+              FROM pdm_feature_counts
+              WHERE project = $1
+                AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
+              ORDER BY ts DESC
+              LIMIT 1
+            )
+            SELECT 
+              COALESCE((SELECT amount FROM current_count), 0) AS current_amount,
+              COALESCE((SELECT amount FROM count_30_days_ago), 0) AS past_amount
+          `,
+            [proj.id],
+          )
+          .then((results) => {
+            if (results.rows.length === 0) {
+              return null;
+            }
+            const row = results.rows[0];
+            const currentAmount = parseInt(row.current_amount) || 0;
+            const pastAmount = parseInt(row.past_amount) || 0;
+            const added = Math.max(0, currentAmount - pastAmount);
+
+            return added > 0
+              ? {
+                  id: proj.id,
+                  title: proj.title,
+                  icon: proj.icon,
+                  added: added,
+                }
+              : null;
+          })
+          .catch(() => null);
+      }),
+    ).then((results) =>
+      results
+        .filter((r) => r !== null)
+        .sort((a, b) => b.added - a.added)
+        .slice(0, 3),
+    ),
+
+    // Quality podium (last 30 days - average completion increase)
+    Promise.all(
+      allProjects
+        .filter((proj) => proj.quality && proj.quality.required_tags)
+        .map((proj) => {
+          return pool
+            .query(
+              `
+              WITH current_quality AS (
+                SELECT avg_completion, ts
+                FROM pdm_quality_stats
+                WHERE project = $1
+                ORDER BY ts DESC
+                LIMIT 1
+              ),
+              quality_30_days_ago AS (
+                SELECT avg_completion, ts
+                FROM pdm_quality_stats
+                WHERE project = $1
+                  AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_quality)
+                ORDER BY ts DESC
+                LIMIT 1
+              )
+              SELECT 
+                COALESCE((SELECT avg_completion FROM current_quality), 0) AS current_avg,
+                COALESCE((SELECT avg_completion FROM quality_30_days_ago), 0) AS past_avg
+            `,
+              [proj.id],
+            )
+            .then((results) => {
+              if (results.rows.length === 0) {
+                return null;
+              }
+              const row = results.rows[0];
+              const currentAvg = parseFloat(row.current_avg) || 0;
+              const pastAvg = parseFloat(row.past_avg) || 0;
+              const increase = currentAvg - pastAvg;
+
+              return increase > 0
+                ? {
+                    id: proj.id,
+                    title: proj.title,
+                    icon: proj.icon,
+                    increase: parseFloat(increase.toFixed(2)),
+                    current: parseFloat(currentAvg.toFixed(2)),
+                    past: parseFloat(pastAvg.toFixed(2)),
+                  }
+                : null;
+            })
+            .catch(() => null);
+        }),
+    ).then((results) =>
+      results
+        .filter((r) => r !== null)
+        .sort((a, b) => b.increase - a.increase)
+        .slice(0, 3),
+    ),
+  ])
+    .then(([contributionsPodium, qualityPodium]) => {
+      res.json({
+        contributions: contributionsPodium,
+        quality: qualityPodium,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching podiums:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
 });
 
 // About
@@ -478,6 +741,18 @@ app.get("/projects/:id/stats", (req, res) => {
               ? Math.max(0, totalToIntegrate - currentAmount)
               : null;
 
+          // Calculate variations between consecutive measurements
+          const variationData = [];
+          for (let i = 1; i < chartData.length; i++) {
+            const prev = chartData[i - 1];
+            const curr = chartData[i];
+            const variation = (parseInt(curr.y) || 0) - (parseInt(prev.y) || 0);
+            variationData.push({
+              t: curr.t,
+              y: variation,
+            });
+          }
+
           return {
             chart: [
               {
@@ -485,6 +760,16 @@ app.get("/projects/:id/stats", (req, res) => {
                 data: chartData,
                 fill: false,
                 borderColor: "#388E3C",
+                lineTension: 0,
+              },
+            ],
+            variationChart: [
+              {
+                label: "Variation entre mesures",
+                data: variationData,
+                fill: true,
+                borderColor: "#1976D2",
+                backgroundColor: "rgba(25, 118, 210, 0.2)",
                 lineTension: 0,
               },
             ],
@@ -745,6 +1030,7 @@ app.get("/projects/:id/stats", (req, res) => {
 
     // Add project metadata for chart display
     toSend.projectStartDate = p.start_date;
+    toSend.projectName = p.title;
     // Extract geographic zone from OSH_PBF_URL (e.g., "france" from "france-internal.osh.pbf")
     const pbfUrl = CONFIG.OSH_PBF_URL || "";
     const zoneMatch = pbfUrl.match(/([^\/]+)-internal\.osh\.pbf/);
@@ -752,6 +1038,350 @@ app.get("/projects/:id/stats", (req, res) => {
 
     res.send(toSend);
   });
+});
+
+// Zone statistics endpoint
+app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.redirect("/");
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const p = projects[req.params.id];
+  const boundaryId = parseInt(req.params.boundary_id);
+
+  if (isNaN(boundaryId)) {
+    return res.status(400).json({ error: "Invalid boundary ID" });
+  }
+
+  // Get boundary info and feature counts
+  Promise.all([
+    pool.query(
+      `
+      SELECT osm_id, name, admin_level, tags
+      FROM pdm_boundary
+      WHERE osm_id = $1
+    `,
+      [boundaryId],
+    ),
+    pool.query(
+      `
+      SELECT ts, amount
+      FROM pdm_feature_counts_per_boundary
+      WHERE project = $1 AND boundary = $2
+      ORDER BY ts ASC
+    `,
+      [req.params.id, boundaryId],
+    ),
+    pool.query(
+      `
+      SELECT DISTINCT project
+      FROM pdm_feature_counts_per_boundary
+      WHERE boundary = $1
+    `,
+      [boundaryId],
+    ),
+    pool.query(
+      `
+      SELECT COUNT(DISTINCT osmid) as count
+      FROM pdm_features_boundary
+      WHERE project = $1 AND boundary = $2
+        AND (end_ts IS NULL OR end_ts > NOW())
+    `,
+      [req.params.id, boundaryId],
+    ),
+  ])
+    .then(([boundaryResult, countsResult, projectsResult, objectsResult]) => {
+      if (boundaryResult.rows.length === 0) {
+        return res.status(404).json({ error: "Boundary not found" });
+      }
+
+      const boundary = boundaryResult.rows[0];
+      const counts = countsResult.rows.map((r) => ({
+        t: r.ts,
+        y: parseInt(r.amount) || 0,
+      }));
+      const otherProjects = projectsResult.rows
+        .map((r) => r.project)
+        .filter((pid) => pid !== req.params.id)
+        .map((pid) => {
+          const proj = projects[pid];
+          return proj ? { id: pid, title: proj.title } : null;
+        })
+        .filter((p) => p !== null);
+
+      const currentAmount =
+        counts.length > 0 ? counts[counts.length - 1].y : 0;
+      const firstAmount = counts.length > 0 ? counts[0].y : 0;
+      const added = counts.length > 0 ? currentAmount - firstAmount : 0;
+
+      const computeDelta = (days) => {
+        if (counts.length === 0) return null;
+        const last = counts[counts.length - 1];
+        const cutoff = new Date(
+          new Date(last.t).getTime() - days * 24 * 3600 * 1000,
+        );
+        let prev = counts[0];
+        for (let i = counts.length - 1; i >= 0; i--) {
+          if (new Date(counts[i].t) <= cutoff) {
+            prev = counts[i];
+            break;
+          }
+        }
+        return Math.max(0, (parseInt(last.y) || 0) - (parseInt(prev.y) || 0));
+      };
+
+      const response = {
+        project: {
+          id: req.params.id,
+          name: p.title,
+        },
+        boundary: {
+          id: boundary.osm_id,
+          name: boundary.name,
+          admin_level: parseInt(boundary.admin_level),
+          tags: boundary.tags,
+        },
+        counts: {
+          chart: [
+            {
+              label: "Nombre d'objets",
+              data: counts,
+              fill: false,
+              borderColor: "#388E3C",
+              lineTension: 0,
+            },
+          ],
+          current: currentAmount,
+          first: firstAmount,
+          added: added,
+          addedWeek: computeDelta(7),
+          added30d: computeDelta(30),
+          added180d: computeDelta(180),
+          added365d: computeDelta(365),
+        },
+        objects: {
+          current: parseInt(objectsResult.rows[0]?.count || 0),
+        },
+        otherProjects: otherProjects,
+      };
+
+      // Add quality stats if available
+      if (p.quality && p.quality.required_tags) {
+        return pool
+          .query(
+            `
+            SELECT 
+              qs.ts,
+              qs.total_objects,
+              qs.avg_completion,
+              qs.fully_complete,
+              qs.partially_complete,
+              qs.incomplete
+            FROM pdm_quality_stats qs
+            WHERE qs.project = $1
+            ORDER BY qs.ts ASC
+          `,
+            [req.params.id],
+          )
+          .then((qualityResult) => {
+            if (qualityResult.rows.length > 0) {
+              response.quality = {
+                chart: [
+                  {
+                    label: "Complétion moyenne",
+                    data: qualityResult.rows.map((r) => ({
+                      t: r.ts,
+                      y: parseFloat(r.avg_completion) || 0,
+                    })),
+                    fill: false,
+                    borderColor: "#1976D2",
+                    lineTension: 0,
+                  },
+                  {
+                    label: "Objets complets (100%)",
+                    data: qualityResult.rows.map((r) => ({
+                      t: r.ts,
+                      y: parseInt(r.fully_complete) || 0,
+                    })),
+                    fill: false,
+                    borderColor: "#388E3C",
+                    lineTension: 0,
+                  },
+                  {
+                    label: "Objets partiellement complets (50-99%)",
+                    data: qualityResult.rows.map((r) => ({
+                      t: r.ts,
+                      y: parseInt(r.partially_complete) || 0,
+                    })),
+                    fill: false,
+                    borderColor: "#FFC107",
+                    lineTension: 0,
+                  },
+                  {
+                    label: "Objets incomplets (<50%)",
+                    data: qualityResult.rows.map((r) => ({
+                      t: r.ts,
+                      y: parseInt(r.incomplete) || 0,
+                    })),
+                    fill: false,
+                    borderColor: "#F44336",
+                    lineTension: 0,
+                  },
+                ],
+                current: {
+                  avg_completion: parseFloat(
+                    qualityResult.rows[qualityResult.rows.length - 1]
+                      .avg_completion,
+                  ),
+                  fully_complete: parseInt(
+                    qualityResult.rows[qualityResult.rows.length - 1]
+                      .fully_complete,
+                  ),
+                  partially_complete: parseInt(
+                    qualityResult.rows[qualityResult.rows.length - 1]
+                      .partially_complete,
+                  ),
+                  incomplete: parseInt(
+                    qualityResult.rows[qualityResult.rows.length - 1].incomplete,
+                  ),
+                  total_objects: parseInt(
+                    qualityResult.rows[qualityResult.rows.length - 1]
+                      .total_objects,
+                  ),
+                },
+                required_tags: p.quality.required_tags,
+              };
+            }
+            res.json(response);
+          })
+          .catch((err) => {
+            console.error("Error fetching quality stats:", err);
+            res.json(response);
+          });
+      } else {
+        res.json(response);
+      }
+    })
+    .catch((err) => {
+      console.error("Error fetching zone stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// Zone objects export endpoint
+app.get("/projects/:id/zones/:boundary_id/objects", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const p = projects[req.params.id];
+  const boundaryId = parseInt(req.params.boundary_id);
+  const projectTableSuffix = req.params.id.split("_").pop();
+
+  if (isNaN(boundaryId)) {
+    return res.status(400).json({ error: "Invalid boundary ID" });
+  }
+
+  // Try to get objects from the project view (which combines point and polygon tables)
+  // projectTableSuffix is safe because it's extracted from a validated project ID
+  const projectTableName = `pdm_project_${projectTableSuffix.replace(/[^a-z0-9_]/gi, "")}`;
+  
+  pool
+    .query(
+      `
+      SELECT DISTINCT fb.osmid, p.name, p.tags
+      FROM pdm_features_boundary fb
+      JOIN ${projectTableName} p ON fb.osmid = p.osm_id
+      WHERE fb.project = $1 
+        AND fb.boundary = $2
+        AND (fb.end_ts IS NULL OR fb.end_ts > NOW())
+      ORDER BY p.name, fb.osmid
+    `,
+      [req.params.id, boundaryId],
+    )
+    .then((result) => {
+      res.json(
+        result.rows.map((r) => ({
+          osm_id: r.osmid,
+          name: r.name,
+          tags: typeof r.tags === "string" ? JSON.parse(r.tags) : r.tags,
+        })),
+      );
+    })
+    .catch((err) => {
+      console.error("Error fetching zone objects:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// Zone details page
+app.get("/projects/:id/zones/:boundary_id", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.redirect("/");
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.redirect("/error/404");
+  }
+
+  const p = projects[req.params.id];
+  const boundaryId = parseInt(req.params.boundary_id);
+
+  if (isNaN(boundaryId)) {
+    return res.redirect("/error/404");
+  }
+
+  const all = foldProjects(projects);
+  const isActive =
+    all.current.length > 0 &&
+    all.current.find((p) => p.id === req.params.id) !== undefined;
+
+  // Get boundary info
+  pool
+    .query(
+      `
+      SELECT osm_id, name, admin_level, tags
+      FROM pdm_boundary
+      WHERE osm_id = $1
+    `,
+      [boundaryId],
+    )
+    .then((result) => {
+      if (result.rows.length === 0) {
+        return res.redirect("/error/404");
+      }
+
+      const boundary = result.rows[0];
+      res.render(
+        "pages/zone",
+        Object.assign(
+          {
+            CONFIG,
+            isActive,
+            project: p,
+            boundary: {
+              id: boundary.osm_id,
+              name: boundary.name,
+              admin_level: parseInt(boundary.admin_level),
+              tags: boundary.tags,
+            },
+          },
+          p,
+        ),
+      );
+    })
+    .catch((err) => {
+      console.error("Error fetching zone:", err);
+      res.redirect("/error/404");
+    });
 });
 
 // Quality completion statistics endpoint
@@ -818,6 +1448,152 @@ app.get("/projects/:id/quality", (req, res) => {
     })
     .catch((err) => {
       console.error("Error fetching quality stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// Zone podiums endpoint (top cities by quality and progress)
+app.get("/projects/:id/zones-podiums", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const p = projects[req.params.id];
+  const projectId = req.params.id;
+
+  Promise.all([
+    // Top 10 cities by quality (average completion percentage)
+    p.quality && p.quality.required_tags
+      ? pool
+          .query(
+            `
+            WITH latest_quality AS (
+              SELECT 
+                qc.osmid,
+                qc.completion_percentage,
+                fb.boundary
+              FROM pdm_quality_completion qc
+              INNER JOIN (
+                SELECT osmid, MAX(ts) as max_ts
+                FROM pdm_quality_completion
+                WHERE project = $1
+                GROUP BY osmid
+              ) latest ON qc.osmid = latest.osmid AND qc.ts = latest.max_ts
+              INNER JOIN pdm_features_boundary fb ON fb.project = $1 
+                AND fb.osmid::text = qc.osmid
+                AND (fb.end_ts IS NULL OR fb.end_ts > NOW())
+            ),
+            boundary_quality AS (
+              SELECT 
+                boundary,
+                AVG(completion_percentage)::NUMERIC(5,2) as avg_completion,
+                COUNT(*) as object_count
+              FROM latest_quality
+              WHERE boundary IS NOT NULL
+              GROUP BY boundary
+              HAVING COUNT(*) >= 5
+            )
+            SELECT 
+              b.osm_id,
+              b.name,
+              bq.avg_completion,
+              bq.object_count
+            FROM boundary_quality bq
+            INNER JOIN pdm_boundary b ON b.osm_id = bq.boundary
+            WHERE b.admin_level IN (8, 9, 10)
+            ORDER BY bq.avg_completion DESC, bq.object_count DESC
+            LIMIT 10
+          `,
+            [projectId],
+          )
+          .then((results) =>
+            results.rows.map((r) => ({
+              boundary_id: parseInt(r.osm_id),
+              name: r.name,
+              avg_completion: parseFloat(r.avg_completion),
+              object_count: parseInt(r.object_count),
+            })),
+          )
+      : Promise.resolve([]),
+
+    // Top 10 cities by progress (objects added in last 30 days)
+    pool
+      .query(
+        `
+        WITH current_count AS (
+          SELECT boundary, amount, ts
+          FROM pdm_feature_counts_per_boundary
+          WHERE project = $1
+          ORDER BY ts DESC
+          LIMIT 1
+        ),
+        count_30_days_ago AS (
+          SELECT fcpb.boundary, fcpb.amount, fcpb.ts
+          FROM pdm_feature_counts_per_boundary fcpb
+          WHERE fcpb.project = $1
+            AND fcpb.ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
+            AND fcpb.boundary IN (
+              SELECT DISTINCT boundary 
+              FROM pdm_feature_counts_per_boundary 
+              WHERE project = $1 AND ts = (SELECT ts FROM current_count)
+            )
+          ORDER BY fcpb.ts DESC
+        ),
+        boundary_progress AS (
+          SELECT 
+            COALESCE(cc.boundary, c30.boundary) as boundary,
+            COALESCE(cc.amount, 0) as current_amount,
+            COALESCE(c30.amount, 0) as past_amount,
+            (COALESCE(cc.amount, 0) - COALESCE(c30.amount, 0)) as added
+          FROM (
+            SELECT DISTINCT boundary, amount
+            FROM pdm_feature_counts_per_boundary
+            WHERE project = $1
+              AND ts = (SELECT ts FROM current_count)
+          ) cc
+          FULL OUTER JOIN (
+            SELECT DISTINCT ON (boundary) boundary, amount
+            FROM count_30_days_ago
+            ORDER BY boundary, ts DESC
+          ) c30 ON cc.boundary = c30.boundary
+        )
+        SELECT 
+          b.osm_id,
+          b.name,
+          bp.added,
+          bp.current_amount,
+          bp.past_amount
+        FROM boundary_progress bp
+        INNER JOIN pdm_boundary b ON b.osm_id = bp.boundary
+        WHERE b.admin_level IN (8, 9, 10)
+          AND bp.added > 0
+        ORDER BY bp.added DESC, bp.current_amount DESC
+        LIMIT 10
+      `,
+        [projectId],
+      )
+      .then((results) =>
+        results.rows.map((r) => ({
+          boundary_id: parseInt(r.osm_id),
+          name: r.name,
+          added: parseInt(r.added),
+          current_amount: parseInt(r.current_amount),
+          past_amount: parseInt(r.past_amount),
+        })),
+      ),
+  ])
+    .then(([qualityPodium, progressPodium]) => {
+      res.json({
+        quality: qualityPodium,
+        progress: progressPodium,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching zone podiums:", err);
       res.status(500).json({ error: "Internal server error" });
     });
 });

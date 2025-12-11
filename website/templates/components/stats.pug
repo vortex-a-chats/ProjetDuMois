@@ -22,18 +22,85 @@ div.row
 							th(scope="col").text-right.pr-2= __("Points")
 					tbody#stats-leaderboard
 
+	//- Zone podiums
+	div.col-12.mb-4
+		div.row
+			div.col-md-6.mb-4
+				h3
+					= __("Top 10 villes - Qualité")
+					button.btn.btn-sm.btn-link.ml-2(type="button" data-toggle="modal" data-target="#podium-cities-quality-modal" style="padding: 0; vertical-align: baseline;")
+						i.fa.fa-info-circle
+				div#podium-cities-quality.row.justify-content-center.align-items-end(style="min-height: 200px;")
+					div.col.text-center
+						div.spinner-border.text-primary(role="status")
+			
+			div.col-md-6.mb-4
+				h3
+					= __("Top 10 villes - Progression (30 jours)")
+					button.btn.btn-sm.btn-link.ml-2(type="button" data-toggle="modal" data-target="#podium-cities-progress-modal" style="padding: 0; vertical-align: baseline;")
+						i.fa.fa-info-circle
+				div#podium-cities-progress.row.justify-content-center.align-items-end(style="min-height: 200px;")
+					div.col.text-center
+						div.spinner-border.text-primary(role="status")
+
+	//- Modals for zone podiums explanations
+	div.modal.fade#podium-cities-quality-modal(tabindex="-1" role="dialog")
+		div.modal-dialog(role="document")
+			div.modal-content
+				div.modal-header
+					h5.modal-title= __("Calcul du podium qualité des villes")
+					button.close(type="button" data-dismiss="modal" aria-label="Close")
+						span(aria-hidden="true") &times;
+				div.modal-body
+					p= __("Ce podium classe les 10 villes (communes) qui ont la meilleure qualité de données pour ce projet.")
+					p= __("Le calcul est effectué en fonction des tags requis définis dans la configuration du projet :")
+					ul
+						li= __("Pour chaque objet dans une ville, on calcule le pourcentage de complétion basé sur le nombre de tags requis présents")
+						li= __("La qualité d'une ville = moyenne des pourcentages de complétion de tous les objets de la ville")
+						li= __("Seules les villes avec au moins 5 objets sont prises en compte")
+						li= __("Les villes sont classées par ordre décroissant de leur qualité moyenne")
+					p.text-muted= __("Les données sont mises à jour quotidiennement.")
+
+	div.modal.fade#podium-cities-progress-modal(tabindex="-1" role="dialog")
+		div.modal-dialog(role="document")
+			div.modal-content
+				div.modal-header
+					h5.modal-title= __("Calcul du podium progression des villes")
+					button.close(type="button" data-dismiss="modal" aria-label="Close")
+						span(aria-hidden="true") &times;
+				div.modal-body
+					p= __("Ce podium classe les 10 villes (communes) qui ont le plus progressé en quantité d'objets au cours des 30 derniers jours.")
+					p= __("Le calcul est effectué en comparant le nombre d'objets actuel avec le nombre d'objets il y a 30 jours :")
+					ul
+						li= __("Nombre d'objets ajoutés = Nombre actuel - Nombre il y a 30 jours")
+						li= __("Seules les villes avec au moins un objet ajouté sont prises en compte")
+						li= __("Les villes sont classées par ordre décroissant du nombre d'objets ajoutés")
+					p.text-muted= __("Les données sont mises à jour quotidiennement.")
+
 	//- Count per admin boundary
 	div.col-12.mb-2
 		h3= __("Contributions par zone")
 		div#map-stats-legend.row.mb-2
-		div#map-stats.pdm-loading
+		div#map-stats.pdm-loading(style="position: relative;")
 
 	//- Charts
 	div.col-12.mb-2#stats-chart-container
 		h3= __("Avancement")
 		div#stats-chart-info.mb-2
-		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
-		canvas#stats-chart.w-100(height="300")
+		div(style="position: relative;")
+			div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+			canvas#stats-chart.w-100(height="300")
+			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+
+	div.col-12.mb-2#stats-variation-chart-container
+		h3= __("Variation des décomptes")
+		p.text-muted.small= __("Ce graphique montre la variation du nombre d'objets entre chaque mesure, permettant d'identifier les périodes d'activité plus marquées.")
+		div(style="position: relative;")
+			div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+			canvas#stats-variation-chart.w-100(height="300")
+			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
 
 	div.col-lg-6.mb-2#stats-chart-notes-container
 		h3= __("Notes")
@@ -105,7 +172,24 @@ script.
 			if(res.avgPerContributor != null) { addBlock(res.avgPerContributor.toFixed(1), "#{__("Objets ajoutés / personne (moy.)")} 🧑‍💻"); }
 			if(res.remaining != null) { addBlock(numberFormat.format(res.remaining), "#{__("Objets restants (estim.)")} ⏳"); }
 			if(res.remainingPerContributor != null) { addBlock(numberFormat.format(res.remainingPerContributor), "#{__("Restant / personne (estim.)")} 🙋"); }
-			if(res.etaDays != null) { addBlock("~"+Math.ceil(res.etaDays), "#{__("Jours restants au rythme actuel (estim.)")} 🕒"); }
+			if(res.etaDays != null) {
+				const etaDays = Math.ceil(res.etaDays);
+				let etaText = "";
+				if(etaDays < 30) {
+					etaText = etaDays + " jours";
+				} else {
+					const years = Math.floor(etaDays / 365);
+					const months = Math.floor((etaDays % 365) / 30);
+					if(years > 0 && months > 0) {
+						etaText = years + " an" + (years > 1 ? "s" : "") + " et " + months + " mois";
+					} else if(years > 0) {
+						etaText = years + " an" + (years > 1 ? "s" : "");
+					} else {
+						etaText = months + " mois";
+					}
+				}
+				addBlock("~" + etaText, "#{__("Jours restants au rythme actuel (estim.)")} 🕒");
+			}
 			if(res.avgPerCommune != null) { addBlock(numberFormat.format(res.avgPerCommune.toFixed(1)), "#{__("Objets intégrés / commune (estim.)")} 🏘️"); }
 			if(res.contributorsPerCommune != null) { addBlock(res.contributorsPerCommune.toFixed(2), "#{__("Contributeurs / commune (estim.)")} 🤝"); }
 
@@ -358,6 +442,68 @@ script.
 				}
 			});
 
+			// Variation chart
+			if(res.variationChart && res.variationChart.length > 0 && res.variationChart[0].data.length > 0) {
+				document.getElementById("stats-variation-chart-container").classList.remove("d-none");
+				const variationSpinner = document.querySelector("#stats-variation-chart-container .spinner-charts");
+				if(variationSpinner) variationSpinner.classList.add("d-none");
+				
+				const ctxVariation = document.getElementById("stats-variation-chart").getContext("2d");
+				const myChartVariation = new Chart(ctxVariation, {
+					type: "bar",
+					data: {
+						datasets: res.variationChart
+					},
+					options: {
+						responsive: true,
+						scales: {
+							xAxes: [{
+								type: 'time',
+								bounds: 'ticks',
+								time: {
+									tooltipFormat: "DD/MM/YYYY",
+									displayFormats: { day: "DD/MM/YYYY" },
+									round: "day",
+									unit: "day"
+								}
+							}],
+							yAxes: [{
+								ticks: {
+									callback: function(value) {
+										return value > 0 ? '+' + numberFormat.format(value) : numberFormat.format(value);
+									}
+								}
+							}]
+						},
+						legend: {
+							display: true
+						},
+						tooltips: {
+							callbacks: {
+								label: function(tooltipItem, data) {
+									const value = tooltipItem.yLabel;
+									return data.datasets[tooltipItem.datasetIndex].label + ': ' + (value > 0 ? '+' : '') + numberFormat.format(value);
+								}
+							}
+						}
+					}
+				});
+			} else {
+				document.getElementById("stats-variation-chart-container").classList.add("d-none");
+			}
+
+			// Add OSM logo to chart after it's created
+			const osmLogoLink = document.createElement('a');
+			osmLogoLink.href = 'https://www.openstreetmap.org';
+			osmLogoLink.target = '_blank';
+			osmLogoLink.style.cssText = 'position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;';
+			const osmLogo = document.createElement('img');
+			osmLogo.src = 'https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg';
+			osmLogo.alt = 'OpenStreetMap';
+			osmLogo.style.cssText = 'height: 30px;';
+			osmLogoLink.appendChild(osmLogo);
+			chartContainer.appendChild(osmLogoLink);
+
 			// Keys chart
 			if(res.chartKeys) {
 				document.getElementById("stats-chart-keys-container").classList.remove("d-none");
@@ -571,6 +717,20 @@ script.
 					maxZoom: 10
 				});
 
+				// Add OSM logo to map after it loads
+				mapStats.on('load', () => {
+					const osmLogoLink = document.createElement('a');
+					osmLogoLink.href = 'https://www.openstreetmap.org';
+					osmLogoLink.target = '_blank';
+					osmLogoLink.style.cssText = 'position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;';
+					const osmLogo = document.createElement('img');
+					osmLogo.src = 'https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg';
+					osmLogo.alt = 'OpenStreetMap';
+					osmLogo.style.cssText = 'height: 30px;';
+					osmLogoLink.appendChild(osmLogo);
+					mapStatsContainer.appendChild(osmLogoLink);
+				});
+
 				const basePopupSize = isMobile ? 250 : 400;
 				const popupHover = new maplibregl.Popup({ closeButton: false, closeOnClick: false, anchor: "left" });
 				const popupClick = new maplibregl.Popup({ closeOnClick: false, className: 'map-stats-popup', maxWidth: basePopupSize+'px' });
@@ -640,8 +800,22 @@ script.
 							}
 						});
 
-						div.appendChild(document.createTextNode(f.properties.name));
+						const nameDiv = document.createElement("div");
+						nameDiv.style.fontWeight = "bold";
+						nameDiv.style.marginBottom = "10px";
+						nameDiv.appendChild(document.createTextNode(f.properties.name));
+						div.appendChild(nameDiv);
 						div.appendChild(canvas);
+
+						const linkDiv = document.createElement("div");
+						linkDiv.style.marginTop = "10px";
+						linkDiv.style.textAlign = "center";
+						const link = document.createElement("a");
+						link.href = `/projects/#{id}/zones/${f.properties.boundary}`;
+						link.textContent = "#{__('Voir les détails de la zone')}";
+						link.classList.add("btn", "btn-sm", "btn-primary");
+						linkDiv.appendChild(link);
+						div.appendChild(linkDiv);
 
 						popupHover.remove();
 						popupClick.setLngLat(coords).setDOMContent(div).addTo(mapStats);
@@ -703,6 +877,108 @@ script.
 				mapStatsContainer.parentNode.classList.add("d-none");
 			}
 		});
+
+		// Load zone podiums
+		const projectId = window.location.pathname.match(/\/projects\/([^\/]+)/)?.[1];
+		if(projectId) {
+			fetch('/projects/' + projectId + '/zones-podiums')
+				.then(res => res.json())
+				.then(data => {
+					// Quality podium
+					const qualityPodium = document.getElementById("podium-cities-quality");
+					const qualitySpinner = qualityPodium.querySelector(".spinner-border");
+					if(qualitySpinner) qualitySpinner.remove();
+					qualityPodium.innerHTML = '';
+					
+					if(data.quality && data.quality.length > 0) {
+						const list = document.createElement("div");
+						list.classList.add("list-group", "w-100");
+						
+						data.quality.forEach((city, index) => {
+							const item = document.createElement("a");
+							item.classList.add("list-group-item", "list-group-item-action", "d-flex", "justify-content-between", "align-items-center");
+							item.href = "/projects/" + projectId + "/zones/" + city.boundary_id;
+							
+							const rank = document.createElement("span");
+							rank.classList.add("badge", "badge-primary", "badge-pill", "mr-2");
+							rank.textContent = (index + 1);
+							rank.style.minWidth = "30px";
+							
+							const name = document.createElement("span");
+							name.textContent = city.name;
+							name.style.flex = "1";
+							
+							const score = document.createElement("span");
+							score.classList.add("badge", "badge-success", "badge-pill");
+							score.textContent = city.avg_completion.toFixed(1) + "%";
+							
+							const count = document.createElement("small");
+							count.classList.add("text-muted", "ml-2");
+							count.textContent = "(" + city.object_count + " objets)";
+							
+							item.appendChild(rank);
+							item.appendChild(name);
+							item.appendChild(score);
+							item.appendChild(count);
+							list.appendChild(item);
+						});
+						
+						qualityPodium.appendChild(list);
+					} else {
+						qualityPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+					}
+
+					// Progress podium
+					const progressPodium = document.getElementById("podium-cities-progress");
+					const progressSpinner = progressPodium.querySelector(".spinner-border");
+					if(progressSpinner) progressSpinner.remove();
+					progressPodium.innerHTML = '';
+					
+					if(data.progress && data.progress.length > 0) {
+						const list = document.createElement("div");
+						list.classList.add("list-group", "w-100");
+						
+						data.progress.forEach((city, index) => {
+							const item = document.createElement("a");
+							item.classList.add("list-group-item", "list-group-item-action", "d-flex", "justify-content-between", "align-items-center");
+							item.href = "/projects/" + projectId + "/zones/" + city.boundary_id;
+							
+							const rank = document.createElement("span");
+							rank.classList.add("badge", "badge-primary", "badge-pill", "mr-2");
+							rank.textContent = (index + 1);
+							rank.style.minWidth = "30px";
+							
+							const name = document.createElement("span");
+							name.textContent = city.name;
+							name.style.flex = "1";
+							
+							const added = document.createElement("span");
+							added.classList.add("badge", "badge-success", "badge-pill");
+							added.textContent = "+" + city.added.toLocaleString('fr-FR');
+							
+							const count = document.createElement("small");
+							count.classList.add("text-muted", "ml-2");
+							count.textContent = "(" + city.current_amount.toLocaleString('fr-FR') + " objets)";
+							
+							item.appendChild(rank);
+							item.appendChild(name);
+							item.appendChild(added);
+							item.appendChild(count);
+							list.appendChild(item);
+						});
+						
+						progressPodium.appendChild(list);
+					} else {
+						progressPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+					}
+				})
+				.catch(err => {
+					console.error('Error loading zone podiums:', err);
+					document.getElementById("podium-cities-quality").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+					document.getElementById("podium-cities-progress").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+				});
+		}
+	});
 	}
 
 	let delayDisplayStats;

@@ -19,7 +19,7 @@
     "imposm": {
       "types": ["point"],
       "mapping": {
-        "amenity": ["street_lamp"]
+        "highway": ["street_lamp"]
       }
     }
   },
