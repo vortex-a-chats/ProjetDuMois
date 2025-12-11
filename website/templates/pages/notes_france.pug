@@ -1,0 +1,121 @@
+extends ../layout.pug
+
+block head
+	script(src="/lib/chart.js/chart.min.js")
+	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
+
+block navbar
+	a(href="/")
+		i.fa.fa-home(title=__("Accueil"))
+		span= __("Accueil")
+
+block content
+	div.container
+		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark
+			h1.font-italic= __("Surveillance des notes OSM en France")
+			p.lead.mb-0= __("Évolution quotidienne du nombre de notes ouvertes et fermées")
+
+	div.container-fluid.py-5.pdm-section-highlight
+		div.container
+			div.row
+				div.col-12.mb-4
+					h2= __("Évolution des notes")
+					div(style="position: relative;")
+						div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+						canvas#notes-chart.w-100(height="400")
+						a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+							img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+
+	script.
+		const chartData = !{JSON.stringify(chartData)};
+		
+		if(chartData && chartData.length > 0) {
+			const ctx = document.getElementById("notes-chart").getContext("2d");
+			const spinner = document.querySelector(".spinner-charts");
+			if(spinner) spinner.classList.add("d-none");
+			
+			const myChart = new Chart(ctx, {
+				type: "line",
+				data: {
+					datasets: [
+						{
+							label: "#{__('Notes ouvertes')}",
+							data: chartData.map(d => ({ t: d.t, y: d.open })),
+							fill: true,
+							borderColor: "#F44336",
+							backgroundColor: "rgba(244, 67, 54, 0.2)",
+							lineTension: 0
+						},
+						{
+							label: "#{__('Notes fermées')}",
+							data: chartData.map(d => ({ t: d.t, y: d.closed })),
+							fill: true,
+							borderColor: "#4CAF50",
+							backgroundColor: "rgba(76, 175, 80, 0.2)",
+							lineTension: 0
+						},
+						{
+							label: "#{__('Total')}",
+							data: chartData.map(d => ({ t: d.t, y: d.total })),
+							fill: false,
+							borderColor: "#2196F3",
+							lineTension: 0
+						}
+					]
+				},
+				options: {
+					responsive: true,
+					scales: {
+						xAxes: [{
+							type: 'time',
+							time: {
+								tooltipFormat: "DD/MM/YYYY",
+								displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+							}
+						}],
+						yAxes: [{
+							ticks: {
+								beginAtZero: true,
+								callback: function(value) {
+									return new Intl.NumberFormat('fr-FR').format(value);
+								}
+							}
+						}]
+					},
+					legend: {
+						display: true,
+						position: 'bottom'
+					}
+				}
+			});
+		} else {
+			document.querySelector(".spinner-charts").classList.add("d-none");
+			document.getElementById("notes-chart").parentElement.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+		}
+
+	div.container-fluid.py-5
+		div.container
+			div.row
+				div.col-12
+					div.card.mt-4
+						div.card-header
+							h5.card-title.mb-0= __("API JSON")
+						div.card-body
+							p= __("Vous pouvez obtenir les données de cette page au format JSON via l'API suivante :")
+							pre.code-block
+								code GET http://localhost:3000/api/notes-france
+							p.small.text-muted.mt-2= __("Cette API retourne un tableau d'objets avec les champs suivants :")
+							ul.small
+								li
+									code t
+									= __(" : Date de la mesure (format ISO)")
+								li
+									code open
+									= __(" : Nombre de notes ouvertes")
+								li
+									code closed
+									= __(" : Nombre de notes fermées")
+								li
+									code total
+									= __(" : Nombre total de notes (ouvertes + fermées)")
+

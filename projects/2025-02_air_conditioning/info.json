@@ -1,0 +1,102 @@
+{
+  "id": "2025-02_air_conditioning",
+  "title": "Lieux climatisés",
+  "start_date": "2025-02-01",
+  "end_date": "2026-06-01",
+  "summary": "Les lieux climatisés offrent un confort essentiel lors des vagues de chaleur. Cartographions ensemble tous les lieux climatisés dans OpenStreetMap ! #Climatisation #ProjetDuMois",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Air_conditioning_icon.svg/800px-Air_conditioning_icon.svg.png",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:air_conditioning"
+  },
+  "quality": {
+    "required_tags": [
+      "air_conditioning"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/air_conditioning w/air_conditioning r/air_conditioning",
+    "imposm": {
+      "types": ["point", "polygon"],
+      "mapping": {
+        "air_conditioning": ["yes", "no", "partial", "limited"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Lieu climatisé à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["climatisation", "air conditioning", "climatisé", "frais", "cool"]
+    },
+    {
+      "source": "osm",
+      "name": "Lieu climatisé dans OSM",
+      "description": "Ce lieu existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    },
+    {
+      "source": "background",
+      "tiles": "mapillary",
+      "name": "Photos de rue",
+      "icon": "mapillary",
+      "attribution": "<a href=\"https://www.mapillary.com\" target=\"_blank\">&copy; Mapillary</a>"
+    }
+  ],
+  "statistics": {
+    "count": true
+  },
+  "geographic_zone": "France",
+  "icon": "/images/projects/air_conditioning.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'un lieu climatisé",
+      "hashtags": "projetdumois,projetdumoisfr,air_conditioning"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "select",
+          "name": "Climatisation",
+          "tag": "air_conditioning",
+          "optional": false,
+          "values": [
+            {"v": "yes", "l": "Oui"},
+            {"v": "no", "l": "Non"},
+            {"v": "partial", "l": "Partielle"},
+            {"v": "limited", "l": "Limitée"}
+          ],
+          "description": "Présence et type de climatisation"
+        },
+        {
+          "type": "text",
+          "name": "Nom",
+          "tag": "name",
+          "optional": true
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter un lieu climatisé",
+        "edit": "Compléter les informations de climatisation"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

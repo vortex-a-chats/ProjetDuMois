@@ -1,0 +1,97 @@
+{
+  "id": "2025-02_data_center",
+  "title": "Centres de données",
+  "start_date": "2025-02-01",
+  "end_date": "2026-06-01",
+  "summary": "Les centres de données sont essentiels pour l'infrastructure numérique. Cartographions ensemble tous les centres de données dans OpenStreetMap ! #DataCenter #ProjetDuMois",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Server_icon.svg/800px-Server_icon.svg.png",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:telecom"
+  },
+  "quality": {
+    "required_tags": [
+      "name"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/telecom=data_center w/telecom=data_center r/telecom=data_center",
+    "imposm": {
+      "types": ["point", "polygon"],
+      "mapping": {
+        "telecom": ["data_center"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Centre de données à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["data center", "datacenter", "centre de données", "serveur", "server"]
+    },
+    {
+      "source": "osm",
+      "name": "Centre de données dans OSM",
+      "description": "Ce centre de données existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    }
+  ],
+  "statistics": {
+    "count": true
+  },
+  "geographic_zone": "France",
+  "icon": "/images/projects/data_center.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'un centre de données",
+      "hashtags": "projetdumois,projetdumoisfr,data_center"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "telecom": "data_center",
+            "source": "*"
+          }
+        },
+        {
+          "type": "text",
+          "name": "Nom",
+          "tag": "name",
+          "optional": false,
+          "description": "Nom du centre de données"
+        },
+        {
+          "type": "text",
+          "name": "Opérateur",
+          "tag": "operator",
+          "optional": true,
+          "description": "Nom de l'opérateur"
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter un centre de données manquant",
+        "edit": "Compléter ce centre de données"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

@@ -145,79 +145,44 @@ app.get("/", (req, res) => {
           const last30Days = Math.max(0, currentAmount - pastAmount);
           const last180Days = Math.max(0, currentAmount - past180Amount);
           
-          // Calculate ETA based on 6 months activity rate
-          const dailyRate180 = last180Days > 0 ? last180Days / 180 : null;
-          
-          // Get remaining objects to import from osmose API
-          const importDatasource = (proj.datasources || []).find(
-            (ds) => ds.source === "osmose" && 
-            (ds.name?.toLowerCase().includes("importer") || ds.name?.toLowerCase().includes("à importer"))
-          );
-          
-          if (importDatasource && dailyRate180 && dailyRate180 > 0) {
-            const params = {
-              item: importDatasource.item,
-              class: importDatasource.class,
-              start_date: proj.start_date,
-              country: importDatasource.country,
-            };
-            return fetch(
-              `${CONFIG.OSMOSE_URL}/fr/issues/graph.json?${queryParams(params)}`,
-            )
-              .then((res) => res.json())
-              .then((osmoseData) => {
-                // Get the latest value (most recent date)
-                const dataEntries = Object.entries(osmoseData.data || {})
-                  .sort((a, b) => a[0].localeCompare(b[0])); // Sort by date
-                const latestValue = dataEntries.length > 0 
-                  ? parseInt(dataEntries[dataEntries.length - 1][1] || 0)
-                  : 0;
-                
-                let etaDays = null;
-                if (latestValue > 0 && dailyRate180 > 0) {
-                  etaDays = latestValue / dailyRate180;
-                }
-                
-                return { 
-                  id: proj.id, 
-                  last30Days,
-                  last180Days,
-                  currentAmount,
-                  pastAmount,
-                  currentTs: row.current_ts,
-                  pastTs: row.past_ts,
-                  remaining: latestValue,
-                  etaDays
-                };
-              })
-              .catch(() => {
-                // If osmose API fails, return stats without ETA
-                return { 
-                  id: proj.id, 
-                  last30Days,
-                  last180Days,
-                  currentAmount,
-                  pastAmount,
-                  currentTs: row.current_ts,
-                  pastTs: row.past_ts,
-                  remaining: null,
-                  etaDays: null
-                };
-              });
-          } else {
-            // No import datasource or no activity, return stats without ETA
-            return { 
-              id: proj.id, 
-              last30Days,
-              last180Days,
-              currentAmount,
-              pastAmount,
-              currentTs: row.current_ts,
-              pastTs: row.past_ts,
-              remaining: null,
-              etaDays: null
-            };
-          }
+          // Calculate ETA - use the same logic as /projects/:id/stats endpoint
+          // Try to get remaining and ETA from project stats (which uses chart data)
+          // This is more reliable as it uses the actual chart data with "import" labels
+          const baseUrl = `${req.protocol}://${req.get('host')}`;
+          return fetch(`${baseUrl}/projects/${proj.id}/stats`)
+            .then((res) => {
+              if (!res.ok) throw new Error('Stats API failed');
+              return res.json();
+            })
+            .then((statsData) => {
+              // Use remaining and etaDays from stats API if available
+              // The stats API already calculates this from chart data
+              return { 
+                id: proj.id, 
+                last30Days,
+                last180Days,
+                currentAmount,
+                pastAmount,
+                currentTs: row.current_ts,
+                pastTs: row.past_ts,
+                remaining: statsData.remaining || null,
+                etaDays: statsData.etaDays || null
+              };
+            })
+            .catch(() => {
+              // If stats API fails, return basic stats without ETA
+              return { 
+                id: proj.id, 
+                last30Days,
+                last180Days,
+                currentAmount,
+                pastAmount,
+                currentTs: row.current_ts,
+                pastTs: row.past_ts,
+                remaining: null,
+                etaDays: null
+              };
+            });
         })
         .catch(() => {
           return { id: proj.id, last30Days: null };
@@ -990,6 +955,36 @@ app.get("/projects/:id/stats", (req, res) => {
         toSend.remaining = remainingImport;
         toSend.totalToIntegrate = totalImport;
       }
+      
+      // Calculate variation chart from the main dataset (first dataset with "Nombre" or "dans OSM" in label)
+      const mainDataset = toSend.chart.find(
+        (ds) =>
+          ds &&
+          typeof ds.label === "string" &&
+          (ds.label.toLowerCase().includes("nombre") || ds.label.toLowerCase().includes("dans osm") || ds.label.toLowerCase().includes("objets"))
+      );
+      if (mainDataset && Array.isArray(mainDataset.data) && mainDataset.data.length > 1) {
+        const variationData = [];
+        for (let i = 1; i < mainDataset.data.length; i++) {
+          const prev = mainDataset.data[i - 1];
+          const curr = mainDataset.data[i];
+          const variation = (Number(curr.y) || 0) - (Number(prev.y) || 0);
+          variationData.push({
+            t: curr.t,
+            y: variation,
+          });
+        }
+        toSend.variationChart = [
+          {
+            label: "Variation entre mesures",
+            data: variationData,
+            fill: true,
+            borderColor: "#1976D2",
+            backgroundColor: "rgba(25, 118, 210, 0.2)",
+            lineTension: 0,
+          },
+        ];
+      }
     }
 
     // Derive averages and ETA once all data merged
@@ -1051,7 +1046,9 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
   }
 
   const p = projects[req.params.id];
-  const boundaryId = parseInt(req.params.boundary_id);
+  // Remove leading minus sign if present (OSM relation IDs can be negative)
+  const boundaryIdStr = req.params.boundary_id.replace(/^-/, '');
+  const boundaryId = parseInt(boundaryIdStr);
 
   if (isNaN(boundaryId)) {
     return res.status(400).json({ error: "Invalid boundary ID" });
@@ -1063,7 +1060,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
       `
       SELECT osm_id, name, admin_level, tags
       FROM pdm_boundary
-      WHERE osm_id = $1
+      WHERE osm_id = $1 OR osm_id = -$1
     `,
       [boundaryId],
     ),
@@ -1071,7 +1068,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
       `
       SELECT ts, amount
       FROM pdm_feature_counts_per_boundary
-      WHERE project = $1 AND boundary = $2
+      WHERE project = $1 AND (boundary = $2 OR boundary = -$2)
       ORDER BY ts ASC
     `,
       [req.params.id, boundaryId],
@@ -1080,7 +1077,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
       `
       SELECT DISTINCT project
       FROM pdm_feature_counts_per_boundary
-      WHERE boundary = $1
+      WHERE boundary = $1 OR boundary = -$1
     `,
       [boundaryId],
     ),
@@ -1088,7 +1085,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
       `
       SELECT COUNT(DISTINCT osmid) as count
       FROM pdm_features_boundary
-      WHERE project = $1 AND boundary = $2
+      WHERE project = $1 AND (boundary = $2 OR boundary = -$2)
         AND (end_ts IS NULL OR end_ts > NOW())
     `,
       [req.params.id, boundaryId],
@@ -1109,7 +1106,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
         .filter((pid) => pid !== req.params.id)
         .map((pid) => {
           const proj = projects[pid];
-          return proj ? { id: pid, title: proj.title } : null;
+          return proj ? { id: pid, title: proj.title, icon: proj.icon } : null;
         })
         .filter((p) => p !== null);
 
@@ -1140,7 +1137,7 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
           name: p.title,
         },
         boundary: {
-          id: boundary.osm_id,
+          id: Math.abs(parseInt(boundary.osm_id)),
           name: boundary.name,
           admin_level: parseInt(boundary.admin_level),
           tags: boundary.tags,
@@ -1283,7 +1280,9 @@ app.get("/projects/:id/zones/:boundary_id/objects", (req, res) => {
   }
 
   const p = projects[req.params.id];
-  const boundaryId = parseInt(req.params.boundary_id);
+  // Remove leading minus sign if present (OSM relation IDs can be negative)
+  const boundaryIdStr = req.params.boundary_id.replace(/^-/, '');
+  const boundaryId = parseInt(boundaryIdStr);
   const projectTableSuffix = req.params.id.split("_").pop();
 
   if (isNaN(boundaryId)) {
@@ -1301,7 +1300,7 @@ app.get("/projects/:id/zones/:boundary_id/objects", (req, res) => {
       FROM pdm_features_boundary fb
       JOIN ${projectTableName} p ON fb.osmid = p.osm_id
       WHERE fb.project = $1 
-        AND fb.boundary = $2
+        AND (fb.boundary = $2 OR fb.boundary = -$2)
         AND (fb.end_ts IS NULL OR fb.end_ts > NOW())
       ORDER BY p.name, fb.osmid
     `,
@@ -1322,6 +1321,62 @@ app.get("/projects/:id/zones/:boundary_id/objects", (req, res) => {
     });
 });
 
+// Search zones by name or INSEE code
+app.get("/projects/:id/zones-search", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const query = req.query.q;
+  if (!query || query.trim().length < 2) {
+    return res.status(400).json({ error: "Query too short (minimum 2 characters)" });
+  }
+
+  const searchTerm = `%${query.trim()}%`;
+
+  pool
+    .query(
+      `
+      SELECT osm_id, name, admin_level, tags
+      FROM pdm_boundary
+      WHERE (name ILIKE $1 
+        OR (tags ? 'ref:INSEE' AND (tags->'ref:INSEE')::text ILIKE $1))
+        AND admin_level IN (8, 9, 10)
+      ORDER BY 
+        CASE 
+          WHEN name ILIKE $2 THEN 1
+          WHEN tags ? 'ref:INSEE' AND (tags->'ref:INSEE')::text = $3 THEN 2
+          ELSE 3
+        END,
+        name
+      LIMIT 20
+    `,
+      [searchTerm, query.trim(), query.trim()],
+    )
+    .then((result) => {
+      res.json({
+        zones: result.rows.map((r) => {
+          // tags is hstore, so access it directly
+          const insee = r.tags && r.tags['ref:INSEE'] ? r.tags['ref:INSEE'] : null;
+          return {
+            id: Math.abs(parseInt(r.osm_id)), // Always use positive ID
+            name: r.name,
+            admin_level: parseInt(r.admin_level),
+            insee: insee,
+          };
+        }),
+      });
+    })
+    .catch((err) => {
+      console.error("Error searching zones:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
 // Zone details page
 app.get("/projects/:id/zones/:boundary_id", (req, res) => {
   if (CONFIG.MAINTENANCE_MODE === true) {
@@ -1333,7 +1388,9 @@ app.get("/projects/:id/zones/:boundary_id", (req, res) => {
   }
 
   const p = projects[req.params.id];
-  const boundaryId = parseInt(req.params.boundary_id);
+  // Remove leading minus sign if present (OSM relation IDs can be negative)
+  const boundaryIdStr = req.params.boundary_id.replace(/^-/, '');
+  const boundaryId = parseInt(boundaryIdStr);
 
   if (isNaN(boundaryId)) {
     return res.redirect("/error/404");
@@ -1345,12 +1402,13 @@ app.get("/projects/:id/zones/:boundary_id", (req, res) => {
     all.current.find((p) => p.id === req.params.id) !== undefined;
 
   // Get boundary info
+  // Search for both positive and negative IDs since OSM relation IDs can be negative
   pool
     .query(
       `
       SELECT osm_id, name, admin_level, tags
       FROM pdm_boundary
-      WHERE osm_id = $1
+      WHERE osm_id = $1 OR osm_id = -$1
     `,
       [boundaryId],
     )
@@ -1360,27 +1418,341 @@ app.get("/projects/:id/zones/:boundary_id", (req, res) => {
       }
 
       const boundary = result.rows[0];
-      res.render(
-        "pages/zone",
-        Object.assign(
-          {
-            CONFIG,
-            isActive,
-            project: p,
-            boundary: {
-              id: boundary.osm_id,
-              name: boundary.name,
-              admin_level: parseInt(boundary.admin_level),
-              tags: boundary.tags,
-            },
-          },
-          p,
-        ),
-      );
+      const boundaryData = {
+        id: Math.abs(parseInt(boundary.osm_id)),
+        name: boundary.name,
+        admin_level: parseInt(boundary.admin_level),
+        tags: boundary.tags,
+      };
+
+      // Check if it's a city (admin_level 8 or 9) and try to get Commons image
+      const isCity = boundaryData.admin_level === 8 || boundaryData.admin_level === 9;
+      let commonsImagePromise = Promise.resolve(null);
+
+      if (isCity) {
+        // Search for images related to the city name
+        const searchQuery = `${boundary.name} France`;
+        commonsImagePromise = fetch(
+          `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srsearch=${encodeURIComponent(searchQuery)}&srnamespace=6&srlimit=5&origin=*`,
+        )
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.query && data.query.search && data.query.search.length > 0) {
+              // Get the first image and fetch its details
+              const firstImage = data.query.search[0];
+              return fetch(
+                `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&titles=${encodeURIComponent(firstImage.title)}&origin=*`,
+              )
+                .then((res) => res.json())
+                .then((imgData) => {
+                  const pages = imgData.query?.pages;
+                  if (pages) {
+                    const pageId = Object.keys(pages)[0];
+                    const page = pages[pageId];
+                    if (page.imageinfo && page.imageinfo[0]) {
+                      const imgInfo = page.imageinfo[0];
+                      return {
+                        url: imgInfo.url,
+                        thumburl: imgInfo.thumburl || imgInfo.url,
+                        thumbwidth: imgInfo.thumbwidth || 800,
+                        thumbheight: imgInfo.thumbheight || 600,
+                        title: firstImage.title,
+                        attribution: imgInfo.extmetadata?.Artist?.value || imgInfo.extmetadata?.Attribution?.value || null,
+                        license: imgInfo.extmetadata?.LicenseShortName?.value || imgInfo.extmetadata?.License?.value || null,
+                        author: imgInfo.extmetadata?.Artist?.value || imgInfo.extmetadata?.Attribution?.value || null,
+                      };
+                    }
+                  }
+                  return null;
+                })
+                .catch((err) => {
+                  console.error("Error fetching Commons image details:", err);
+                  return null;
+                });
+            }
+            return null;
+          })
+          .catch((err) => {
+            console.error("Error searching Commons:", err);
+            return null;
+          });
+      }
+
+      // Get all projects that have data for this boundary
+      return pool
+        .query(
+          `
+          SELECT DISTINCT project
+          FROM pdm_feature_counts_per_boundary
+          WHERE boundary = $1 OR boundary = -$1
+        `,
+          [boundaryId],
+        )
+        .then((projectsResult) => {
+          const allProjectsForZone = projectsResult.rows
+            .map((r) => r.project)
+            .map((pid) => {
+              const proj = projects[pid];
+              return proj ? { id: pid, title: proj.title, icon: proj.icon } : null;
+            })
+            .filter((p) => p !== null)
+            .sort((a, b) => a.title.localeCompare(b.title));
+
+          return commonsImagePromise.then((commonsImage) => {
+            res.render(
+              "pages/zone",
+              Object.assign(
+                {
+                  CONFIG,
+                  isActive,
+                  project: p,
+                  boundary: boundaryData,
+                  commonsImage: commonsImage,
+                  projects: projects, // Pass all projects for icons
+                  allProjectsForZone: allProjectsForZone, // All projects with data for this zone
+                },
+                p,
+              ),
+            );
+          });
+        });
     })
     .catch((err) => {
       console.error("Error fetching zone:", err);
       res.redirect("/error/404");
+    });
+});
+
+// Notes France monitoring page
+app.get("/notes-france", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.redirect("/");
+  }
+
+  pool
+    .query(
+      `
+      SELECT 
+        ts,
+        open as total_open,
+        closed as total_closed,
+        (open + closed) as total
+      FROM pdm_note_counts_global
+      ORDER BY ts ASC
+    `,
+    )
+    .then((result) => {
+      const chartData = result.rows.map((r) => ({
+        t: r.ts,
+        open: parseInt(r.total_open) || 0,
+        closed: parseInt(r.total_closed) || 0,
+        total: parseInt(r.total) || 0,
+      }));
+      
+      // If JSON format requested
+      if (req.query.format === "json" || req.path.startsWith("/api/")) {
+        return res.json(chartData);
+      }
+      
+      res.render("pages/notes_france", {
+        CONFIG,
+        chartData,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching notes France stats:", err);
+      res.redirect("/error/500");
+    });
+});
+
+// API endpoint for notes France JSON
+app.get("/api/notes-france", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  pool
+    .query(
+      `
+      SELECT 
+        ts,
+        open as total_open,
+        closed as total_closed,
+        (open + closed) as total
+      FROM pdm_note_counts_global
+      ORDER BY ts ASC
+    `,
+    )
+    .then((result) => {
+      res.json(
+        result.rows.map((r) => ({
+          t: r.ts,
+          open: parseInt(r.total_open) || 0,
+          closed: parseInt(r.total_closed) || 0,
+          total: parseInt(r.total) || 0,
+        })),
+      );
+    })
+    .catch((err) => {
+      console.error("Error fetching notes France stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// OSM Plein Air - Hiking routes monitoring page
+app.get("/osm-plein-air", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.redirect("/");
+  }
+
+  // Get all hiking routes (type=route and route=hiking)
+  pool
+    .query(
+      `
+      SELECT 
+        osm_id,
+        name,
+        tags->>'ref' as ref,
+        tags->>'network' as network,
+        tags->>'operator' as operator,
+        tags->>'distance' as distance,
+        tags->>'ascent' as ascent,
+        tags->>'descent' as descent,
+        tags->>'duration' as duration
+      FROM pdm_relation_hiking
+      ORDER BY name, osm_id
+      LIMIT 1000
+    `,
+    )
+    .then((result) => {
+      res.render("pages/osm_plein_air", {
+        CONFIG,
+        routes: result.rows.map((r) => ({
+          id: parseInt(r.osm_id),
+          name: r.name,
+          ref: r.ref,
+          network: r.network,
+          operator: r.operator,
+          distance: r.distance,
+          ascent: r.ascent,
+          descent: r.descent,
+          duration: r.duration,
+        })),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching hiking routes:", err);
+      // If table doesn't exist yet, render empty page
+      res.render("pages/osm_plein_air", {
+        CONFIG,
+        routes: [],
+      });
+    });
+});
+
+// API endpoint for hiking route member history
+app.get("/api/hiking-route/:relation_id/members", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const relationId = parseInt(req.params.relation_id);
+  if (isNaN(relationId)) {
+    return res.status(400).json({ error: "Invalid relation ID" });
+  }
+
+  pool
+    .query(
+      `
+      SELECT 
+        ts,
+        member_count,
+        changeset_id,
+        username,
+        userid
+      FROM pdm_relation_hiking_members
+      WHERE relation_id = $1
+      ORDER BY ts ASC
+    `,
+      [relationId],
+    )
+    .then((result) => {
+      res.json({
+        relation_id: relationId,
+        history: result.rows.map((r) => ({
+          ts: r.ts,
+          member_count: parseInt(r.member_count) || 0,
+          changeset_id: r.changeset_id ? parseInt(r.changeset_id) : null,
+          username: r.username,
+          userid: r.userid ? parseInt(r.userid) : null,
+        })),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching route members history:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API endpoint for hiking route continuity breaks
+app.get("/api/hiking-route/:relation_id/breaks", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const relationId = parseInt(req.params.relation_id);
+  if (isNaN(relationId)) {
+    return res.status(400).json({ error: "Invalid relation ID" });
+  }
+
+  pool
+    .query(
+      `
+      WITH member_history AS (
+        SELECT 
+          ts,
+          member_count,
+          changeset_id,
+          username,
+          userid,
+          LAG(member_count) OVER (ORDER BY ts) as prev_count
+        FROM pdm_relation_hiking_members
+        WHERE relation_id = $1
+        ORDER BY ts ASC
+      )
+      SELECT 
+        ts,
+        member_count,
+        prev_count,
+        (member_count - prev_count) as change,
+        changeset_id,
+        username,
+        userid
+      FROM member_history
+      WHERE prev_count IS NOT NULL 
+        AND member_count < prev_count
+        AND (member_count - prev_count) < -1
+      ORDER BY ts DESC
+    `,
+      [relationId],
+    )
+    .then((result) => {
+      res.json({
+        relation_id: relationId,
+        breaks: result.rows.map((r) => ({
+          ts: r.ts,
+          member_count: parseInt(r.member_count) || 0,
+          prev_count: parseInt(r.prev_count) || 0,
+          change: parseInt(r.change) || 0,
+          changeset_id: r.changeset_id ? parseInt(r.changeset_id) : null,
+          username: r.username,
+          userid: r.userid ? parseInt(r.userid) : null,
+        })),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching route breaks:", err);
+      res.status(500).json({ error: "Internal server error" });
     });
 });
 
@@ -1512,10 +1884,10 @@ app.get("/projects/:id/zones-podiums", (req, res) => {
           )
           .then((results) =>
             results.rows.map((r) => ({
-              boundary_id: parseInt(r.osm_id),
-              name: r.name,
-              avg_completion: parseFloat(r.avg_completion),
-              object_count: parseInt(r.object_count),
+            boundary_id: Math.abs(parseInt(r.osm_id)),
+            name: r.name,
+            avg_completion: parseFloat(r.avg_completion),
+            object_count: parseInt(r.object_count),
             })),
           )
       : Promise.resolve([]),
@@ -1563,12 +1935,12 @@ app.get("/projects/:id/zones-podiums", (req, res) => {
         )
         SELECT 
           b.osm_id,
-          b.name,
+          COALESCE(b.name, 'Sans nom') as name,
           bp.added,
           bp.current_amount,
           bp.past_amount
         FROM boundary_progress bp
-        INNER JOIN pdm_boundary b ON b.osm_id = bp.boundary
+        INNER JOIN pdm_boundary b ON (b.osm_id = bp.boundary OR b.osm_id = -bp.boundary)
         WHERE b.admin_level IN (8, 9, 10)
           AND bp.added > 0
         ORDER BY bp.added DESC, bp.current_amount DESC
@@ -1578,7 +1950,7 @@ app.get("/projects/:id/zones-podiums", (req, res) => {
       )
       .then((results) =>
         results.rows.map((r) => ({
-          boundary_id: parseInt(r.osm_id),
+          boundary_id: Math.abs(parseInt(r.osm_id)),
           name: r.name,
           added: parseInt(r.added),
           current_amount: parseInt(r.current_amount),

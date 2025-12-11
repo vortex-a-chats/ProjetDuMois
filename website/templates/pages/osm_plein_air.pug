@@ -1,0 +1,211 @@
+extends ../layout.pug
+
+block head
+	script(src="/lib/chart.js/chart.min.js")
+	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
+
+block navbar
+	a(href="/")
+		i.fa.fa-home(title=__("Accueil"))
+		span= __("Accueil")
+
+block content
+	div.container
+		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark
+			h1.font-italic= __("OSM Plein Air")
+			p.lead.mb-0= __("Surveillance des itinéraires de randonnée (type=route, route=hiking)")
+
+	div.container-fluid.py-5.pdm-section-highlight
+		div.container
+			div.row
+				div.col-12.mb-4
+					h2= __("Itinéraires de randonnée")
+					
+					if routes && routes.length > 0
+						div.table-responsive
+							table.table.table-striped
+								thead
+									tr
+										th= __("Nom")
+										th= __("Référence")
+										th= __("Réseau")
+										th= __("Opérateur")
+										th= __("Distance")
+										th= __("Dénivelé +")
+										th= __("Dénivelé -")
+										th= __("Durée")
+										th= __("Actions")
+								tbody#routes-list
+									each route in routes
+										tr(data-route-id=route.id)
+											td= route.name || __("Sans nom")
+											td= route.ref || "-"
+											td= route.network || "-"
+											td= route.operator || "-"
+											td= route.distance ? route.distance + " km" : "-"
+											td= route.ascent ? route.ascent + " m" : "-"
+											td= route.descent ? route.descent + " m" : "-"
+											td= route.duration || "-"
+											td
+												button.btn.btn-sm.btn-primary.route-details-btn(type="button" data-route-id=route.id)
+													i.fa.fa-chart-line.mr-1
+													= __("Détails")
+					else
+						p.text-muted= __("Aucun itinéraire trouvé. Les données seront disponibles après la première mise à jour.")
+
+	//- Modal for route details
+	div.modal.fade#route-details-modal(tabindex="-1" role="dialog")
+		div.modal-dialog.modal-lg(role="document")
+			div.modal-content
+				div.modal-header
+					h5.modal-title#route-details-title= __("Détails de l'itinéraire")
+					button.close(type="button" data-dismiss="modal" aria-label="Close")
+						span(aria-hidden="true") &times;
+				div.modal-body
+					div#route-details-content
+						div.text-center
+							div.spinner-border.text-primary(role="status")
+
+	script.
+		const routes = !{JSON.stringify(routes)};
+		
+		// Route details modal
+		document.querySelectorAll('.route-details-btn').forEach(btn => {
+			btn.addEventListener('click', function() {
+				const routeId = this.getAttribute('data-route-id');
+				const route = routes.find(r => r.id == routeId);
+				
+				document.getElementById('route-details-title').textContent = route ? (route.name || "#{__('Itinéraire')} " + routeId) : "#{__('Itinéraire')} " + routeId;
+				document.getElementById('route-details-content').innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div></div>';
+				
+				$('#route-details-modal').modal('show');
+				
+				// Fetch member history and breaks
+				Promise.all([
+					fetch(`/api/hiking-route/${routeId}/members`).then(r => r.json()),
+					fetch(`/api/hiking-route/${routeId}/breaks`).then(r => r.json())
+				]).then(([membersData, breaksData]) => {
+					const content = document.getElementById('route-details-content');
+					content.innerHTML = '';
+					
+					// Member count chart
+					if(membersData.history && membersData.history.length > 0) {
+						const chartDiv = document.createElement('div');
+						chartDiv.innerHTML = '<h6>#{__("Évolution du nombre de membres")}</h6><canvas id="route-members-chart" height="200"></canvas>';
+						content.appendChild(chartDiv);
+						
+						const ctx = document.getElementById('route-members-chart').getContext('2d');
+						new Chart(ctx, {
+							type: 'line',
+							data: {
+								datasets: [{
+									label: "#{__('Nombre de membres')}",
+									data: membersData.history.map(h => ({ t: h.ts, y: h.member_count })),
+									fill: false,
+									borderColor: "#1976D2",
+									lineTension: 0
+								}]
+							},
+							options: {
+								responsive: true,
+								scales: {
+									xAxes: [{
+										type: 'time',
+										time: {
+											tooltipFormat: "DD/MM/YYYY",
+											displayFormats: { day: "DD/MM/YYYY" }
+										}
+									}],
+									yAxes: [{
+										ticks: {
+											beginAtZero: true
+										}
+									}]
+								}
+							}
+						});
+					}
+					
+					// Continuity breaks
+					if(breaksData.breaks && breaksData.breaks.length > 0) {
+						const breaksDiv = document.createElement('div');
+						breaksDiv.classList.add('mt-4');
+						breaksDiv.innerHTML = '<h6>#{__("Ruptures de continuité")}</h6><p class="text-muted small">#{__("Changementsets responsables d\'une diminution significative du nombre de membres")}</p>';
+						
+						const breaksTable = document.createElement('table');
+						breaksTable.classList.add('table', 'table-sm');
+						breaksTable.innerHTML = `
+							<thead>
+								<tr>
+									<th>#{__("Date")}</th>
+									<th>#{__("Membres avant")}</th>
+									<th>#{__("Membres après")}</th>
+									<th>#{__("Changement")}</th>
+									<th>#{__("Utilisateur")}</th>
+									<th>#{__("Changeset")}</th>
+								</tr>
+							</thead>
+							<tbody></tbody>
+						`;
+						
+						const tbody = breaksTable.querySelector('tbody');
+						breaksData.breaks.forEach(breakItem => {
+							const tr = document.createElement('tr');
+							const date = new Date(breakItem.ts);
+							tr.innerHTML = `
+								<td>${date.toLocaleDateString('fr-FR')}</td>
+								<td>${breakItem.prev_count}</td>
+								<td>${breakItem.member_count}</td>
+								<td class="text-danger">${breakItem.change}</td>
+								<td>${breakItem.username || '-'}</td>
+								<td>
+									${breakItem.changeset_id ? 
+										`<a href="https://www.openstreetmap.org/changeset/${breakItem.changeset_id}" target="_blank">${breakItem.changeset_id}</a> | 
+										<a href="https://overpass-api.de/achavi/?changeset=${breakItem.changeset_id}" target="_blank">Achavi</a>` : 
+										'-'}
+								</td>
+							`;
+							tbody.appendChild(tr);
+						});
+						
+						breaksDiv.appendChild(breaksTable);
+						content.appendChild(breaksDiv);
+					} else {
+						const noBreaks = document.createElement('div');
+						noBreaks.classList.add('mt-4', 'alert', 'alert-success');
+						noBreaks.textContent = "#{__('Aucune rupture de continuité détectée')}";
+						content.appendChild(noBreaks);
+					}
+				}).catch(err => {
+					console.error('Error loading route details:', err);
+					document.getElementById('route-details-content').innerHTML = '<div class="alert alert-danger">#{__("Erreur lors du chargement des données")}</div>';
+				});
+			});
+		});
+
+	div.container-fluid.py-5
+		div.container
+			div.row
+				div.col-12
+					div.card.mt-4
+						div.card-header
+							h5.card-title.mb-0= __("API JSON")
+						div.card-body
+							p= __("Vous pouvez obtenir les données de cette page au format JSON via les API suivantes :")
+							div.mb-3
+								p.mb-1
+									strong= __("Liste des itinéraires :")
+								pre.code-block
+									code GET http://localhost:3000/osm-plein-air
+							div.mb-3
+								p.mb-1
+									strong= __("Historique des membres d'un itinéraire :")
+								pre.code-block
+									code GET http://localhost:3000/api/hiking-route/:relation_id/members
+							div.mb-3
+								p.mb-1
+									strong= __("Ruptures de continuité d'un itinéraire :")
+								pre.code-block
+									code GET http://localhost:3000/api/hiking-route/:relation_id/breaks
+							p.small.text-muted.mt-2= __("Remplacez :relation_id par l'ID de la relation OSM (ex: 12345)")
+

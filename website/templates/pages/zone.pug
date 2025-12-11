@@ -15,7 +15,12 @@ block navbar
 
 block content
 	div.container
-		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark
+		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark.position-relative(style=commonsImage ? "min-height: 200px; background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url(" + commonsImage.thumburl + "); background-size: cover; background-position: center;" : "")
+			if commonsImage
+				div.position-absolute(style="top: 10px; right: 10px;")
+					a.btn.btn-sm.btn-light(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener")
+						i.fa.fa-external-link-alt.mr-1
+						= __("Voir sur Commons")
 			h1.font-italic= boundary.name
 			p.lead.mb-0
 				= __("Zone administrative")
@@ -23,15 +28,50 @@ block content
 				- var adminLevelText = boundary.admin_level === 4 ? __("Région") : boundary.admin_level === 6 ? __("Département") : __("Commune")
 				= adminLevelText
 				br
-				= __("Projet")
-				| : 
-				a.text-white(href=`/projects/${project.id}`)= project.title
+				if allProjectsForZone && allProjectsForZone.length > 1
+					= __("Projet")
+					| : 
+					select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" onchange="window.location.href='/projects/' + this.value + '/zones/#{boundary.id}'")
+						each proj in allProjectsForZone
+							option(value=proj.id selected=(proj.id === project.id) style="background: #343a40; color: white;")= proj.title
+				else
+					= __("Projet")
+					| : 
+					a.text-white(href=`/projects/${project.id}`)= project.title
+			if commonsImage
+				div.mt-2(style="font-size: 0.75em; opacity: 0.85;")
+					= __("Image")
+					| : 
+					if commonsImage.author
+						span!= commonsImage.author
+					if commonsImage.license
+						|  (
+						span!= commonsImage.license
+						| )
+					|  - 
+					a.text-white(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener" style="text-decoration: underline;")
+						= __("Wikimedia Commons")
 
 	div.container-fluid.py-5.pdm-section-highlight
 		div.container
 			div.row
 				div.col-12.mb-4
 					h2#statistics= __("Statistiques de la zone")
+					
+					//- Zone search form
+					div.card.mb-4
+						div.card-body
+							h5.card-title= __("Rechercher une autre zone")
+							p.card-text= __("Recherchez une ville, un département ou une région par son nom ou son code INSEE")
+							form#zone-search-form
+								div.form-row
+									div.col-md-8.mb-2(style="position: relative;")
+										input.form-control#zone-search-input(type="text" placeholder=__("Nom de la zone ou code INSEE") autocomplete="off")
+										div#zone-search-results.list-group(style="position: absolute; z-index: 1000; width: 100%; max-height: 300px; overflow-y: auto; display: none; background: white; border: 1px solid #ddd; border-radius: 4px; margin-top: 2px;")
+									div.col-md-4.mb-2
+										button.btn.btn-primary.btn-block(type="submit")
+											i.fa.fa-search.mr-2
+											= __("Rechercher")
 					
 					div.row.mb-4#zone-stats-blocks
 						div.col.text-center
@@ -79,168 +119,261 @@ block content
 									code
 										= `curl "${CONFIG.OSM_URL.replace('https://www.openstreetmap.org', '')}/projects/${project.id}/zones/${boundary.id}/stats"`
 
-script.
-	const projectId = !{JSON.stringify(project.id)};
-	const boundaryId = !{JSON.stringify(boundary.id)};
-	const boundaryName = !{JSON.stringify(boundary.name)};
-	const boundaryAdminLevel = !{JSON.stringify(boundary.admin_level)};
-	const projectTagFilter = !{JSON.stringify((project.database && project.database.osmium_tag_filter) ? project.database.osmium_tag_filter : '')};
+	script.
+		const projectId = !{JSON.stringify(project.id)};
+		const boundaryId = !{JSON.stringify(boundary.id)};
+		const boundaryName = !{JSON.stringify(boundary.name)};
+		const boundaryAdminLevel = !{JSON.stringify(boundary.admin_level)};
+		const projectTagFilter = !{JSON.stringify((project.database && project.database.osmium_tag_filter) ? project.database.osmium_tag_filter : '')};
 
-	fetch(`/projects/${projectId}/zones/${boundaryId}/stats`)
-		.then(res => res.json())
-		.then(data => {
-			// Stats blocks
-			const statsBlocks = document.getElementById("zone-stats-blocks");
-			statsBlocks.innerHTML = '';
-			
-			const addBlock = (value, label) => {
-				const div = document.createElement("div");
-				div.classList.add("col-md-3", "mb-3");
-				div.innerHTML = `
-					<div class="card text-center">
-						<div class="card-body">
-							<h5 class="card-title">${value}</h5>
-							<p class="card-text text-muted">${label}</p>
+		fetch(`/projects/${projectId}/zones/${boundaryId}/stats`)
+			.then(res => res.json())
+			.then(data => {
+				// Stats blocks
+				const statsBlocks = document.getElementById("zone-stats-blocks");
+				statsBlocks.innerHTML = '';
+				
+				const addBlock = (value, label) => {
+					const div = document.createElement("div");
+					div.classList.add("col-md-3", "mb-3");
+					div.innerHTML = `
+						<div class="card text-center">
+							<div class="card-body">
+								<h5 class="card-title">${value}</h5>
+								<p class="card-text text-muted">${label}</p>
+							</div>
 						</div>
-					</div>
-				`;
-				statsBlocks.appendChild(div);
-			};
+					`;
+					statsBlocks.appendChild(div);
+				};
 
-			if(data.counts) {
-				if(data.counts.current != null) {
-					addBlock(data.counts.current.toLocaleString('fr-FR'), "#{__('Objets actuels')} 📊");
-				}
-				if(data.counts.added != null) {
-					addBlock("+" + data.counts.added.toLocaleString('fr-FR'), "#{__('Objets ajoutés')} 📈");
-				}
-				if(data.counts.addedWeek != null) {
-					addBlock("+" + data.counts.addedWeek.toLocaleString('fr-FR'), "#{__('Ajouts sur 7 jours')} 📆");
-				}
-				if(data.counts.added30d != null) {
-					addBlock("+" + data.counts.added30d.toLocaleString('fr-FR'), "#{__('Ajouts sur 30 jours')} 🗓️");
-				}
-			}
-
-			// Counts chart
-			if(data.counts && data.counts.chart && data.counts.chart.length > 0) {
-				const ctx = document.getElementById("zone-chart-counts").getContext("2d");
-				const chart = new Chart(ctx, {
-					type: "line",
-					data: {
-						datasets: data.counts.chart
-					},
-					options: {
-						responsive: true,
-						scales: {
-							xAxes: [{
-								type: 'time',
-								time: {
-									tooltipFormat: "DD/MM/YYYY",
-									displayFormats: { day: "DD/MM/YYYY" }
-								}
-							}],
-							yAxes: [{
-								ticks: {
-									beginAtZero: true
-								}
-							}]
-						}
+				if(data.counts) {
+					if(data.counts.current != null) {
+						addBlock(data.counts.current.toLocaleString('fr-FR'), "#{__('Objets actuels')} 📊");
 					}
-				});
-				document.querySelector("#zone-chart-counts").parentElement.querySelector(".spinner-border").remove();
-			}
-
-			// Quality chart
-			if(data.quality && data.quality.chart && data.quality.chart.length > 0) {
-				const ctx = document.getElementById("zone-chart-quality").getContext("2d");
-				const chart = new Chart(ctx, {
-					type: "line",
-					data: {
-						datasets: data.quality.chart
-					},
-					options: {
-						responsive: true,
-						scales: {
-							xAxes: [{
-								type: 'time',
-								time: {
-									tooltipFormat: "DD/MM/YYYY",
-									displayFormats: { day: "DD/MM/YYYY" }
-								}
-							}],
-							yAxes: [{
-								ticks: {
-									beginAtZero: true
-								}
-							}]
-						}
+					if(data.counts.added != null) {
+						addBlock("+" + data.counts.added.toLocaleString('fr-FR'), "#{__('Objets ajoutés')} 📈");
 					}
-				});
-				document.querySelector("#zone-chart-quality").parentElement.querySelector(".spinner-border").remove();
-			} else {
-				document.getElementById("zone-chart-quality-container").classList.add("d-none");
-			}
-
-			// Other projects
-			if(data.otherProjects && data.otherProjects.length > 0) {
-				const list = document.getElementById("zone-other-projects-list");
-				const ul = document.createElement("ul");
-				ul.classList.add("list-group");
-				data.otherProjects.forEach(proj => {
-					const li = document.createElement("li");
-					li.classList.add("list-group-item");
-					li.innerHTML = `<a href="/projects/${proj.id}/zones/${boundaryId}">${proj.title}</a>`;
-					ul.appendChild(li);
-				});
-				list.appendChild(ul);
-			} else {
-				document.getElementById("zone-other-projects").classList.add("d-none");
-			}
-
-			// JOSM button
-			document.getElementById("zone-josm-btn").addEventListener("click", () => {
-				const tagParts = projectTagFilter.split('=');
-				const tagKey = tagParts[0] ? tagParts[0].split('/').pop() : '';
-				const tagValue = tagParts[1] || '';
-				
-				// Build Overpass query to get all objects in the boundary with project tags
-				let overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;`;
-				if(tagKey && tagValue) {
-					overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;(node["${tagKey}"="${tagValue}"](area);way["${tagKey}"="${tagValue}"](area);relation["${tagKey}"="${tagValue}"](area););out geom;`;
+					if(data.counts.addedWeek != null) {
+						addBlock("+" + data.counts.addedWeek.toLocaleString('fr-FR'), "#{__('Ajouts sur 7 jours')} 📆");
+					}
+					if(data.counts.added30d != null) {
+						addBlock("+" + data.counts.added30d.toLocaleString('fr-FR'), "#{__('Ajouts sur 30 jours')} 🗓️");
+					}
 				}
-				
-				const josmUrl = `http://localhost:8111/import?url=${encodeURIComponent(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`)}`;
-				window.open(josmUrl, '_blank');
-			});
 
-			// CSV export button
-			document.getElementById("zone-csv-btn").addEventListener("click", () => {
-				fetch(`/projects/${projectId}/zones/${boundaryId}/objects`)
-					.then(res => res.json())
-					.then(objects => {
-						const csv = [
-							['osm_id', 'name', 'tags'].join(','),
-							...objects.map(obj => [
-								obj.osm_id,
-								obj.name || '',
-								JSON.stringify(obj.tags || {})
-							].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-						].join('\n');
-						
-						const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-						const link = document.createElement('a');
-						link.href = URL.createObjectURL(blob);
-						link.download = `${projectId}_${boundaryId}_objects.csv`;
-						link.click();
-					})
-					.catch(err => {
-						console.error('Error exporting CSV:', err);
-						alert("#{__('Erreur lors de l\'export CSV')}");
+				// Counts chart
+				if(data.counts && data.counts.chart && data.counts.chart.length > 0) {
+					const ctx = document.getElementById("zone-chart-counts").getContext("2d");
+					const chart = new Chart(ctx, {
+						type: "line",
+						data: {
+							datasets: data.counts.chart
+						},
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true
+									}
+								}]
+							}
+						}
 					});
+					document.querySelector("#zone-chart-counts").parentElement.querySelector(".spinner-border").remove();
+				}
+
+				// Quality chart
+				if(data.quality && data.quality.chart && data.quality.chart.length > 0) {
+					const ctx = document.getElementById("zone-chart-quality").getContext("2d");
+					const chart = new Chart(ctx, {
+						type: "line",
+						data: {
+							datasets: data.quality.chart
+						},
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true
+									}
+								}]
+							}
+						}
+					});
+					document.querySelector("#zone-chart-quality").parentElement.querySelector(".spinner-border").remove();
+				} else {
+					document.getElementById("zone-chart-quality-container").classList.add("d-none");
+				}
+
+				// Other projects
+				if(data.otherProjects && data.otherProjects.length > 0) {
+					const list = document.getElementById("zone-other-projects-list");
+					const projectsContainer = document.createElement("div");
+					projectsContainer.style.cssText = "display: flex; flex-wrap: wrap; gap: 15px;";
+					
+					data.otherProjects.forEach(proj => {
+						const projectLink = document.createElement("a");
+						projectLink.href = `/projects/${proj.id}/zones/${boundaryId}`;
+						projectLink.classList.add("btn", "btn-outline-primary", "d-flex", "align-items-center");
+						projectLink.style.cssText = "min-width: 200px; flex: 1 1 auto; max-width: 300px;";
+						
+						if(proj.icon) {
+							const icon = document.createElement("img");
+							icon.src = proj.icon;
+							icon.alt = proj.title;
+							icon.style.cssText = "height: 32px; width: 32px; margin-right: 10px; object-fit: contain;";
+							projectLink.appendChild(icon);
+						}
+						
+						const title = document.createElement("span");
+						title.textContent = proj.title;
+						projectLink.appendChild(title);
+						
+						projectsContainer.appendChild(projectLink);
+					});
+					
+					list.appendChild(projectsContainer);
+				} else {
+					document.getElementById("zone-other-projects").classList.add("d-none");
+				}
+
+				// JOSM button
+				document.getElementById("zone-josm-btn").addEventListener("click", () => {
+					const tagParts = projectTagFilter.split('=');
+					const tagKey = tagParts[0] ? tagParts[0].split('/').pop() : '';
+					const tagValue = tagParts[1] || '';
+					
+					// Build Overpass query to get all objects in the boundary with project tags
+					let overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;`;
+					if(tagKey && tagValue) {
+						overpassQuery = `[out:xml][timeout:25];(relation(${boundaryId}););out geom;(node["${tagKey}"="${tagValue}"](area);way["${tagKey}"="${tagValue}"](area);relation["${tagKey}"="${tagValue}"](area););out geom;`;
+					}
+					
+					const josmUrl = `http://localhost:8111/import?url=${encodeURIComponent(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`)}`;
+					window.open(josmUrl, '_blank');
+				});
+
+				// CSV export button
+				document.getElementById("zone-csv-btn").addEventListener("click", () => {
+					fetch(`/projects/${projectId}/zones/${boundaryId}/objects`)
+						.then(res => res.json())
+						.then(objects => {
+							const csv = [
+								['osm_id', 'name', 'tags'].join(','),
+								...objects.map(obj => [
+									obj.osm_id,
+									obj.name || '',
+									JSON.stringify(obj.tags || {})
+								].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+							].join('\n');
+							
+							const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+							const link = document.createElement('a');
+							link.href = URL.createObjectURL(blob);
+							link.download = `${projectId}_${boundaryId}_objects.csv`;
+							link.click();
+						})
+						.catch(err => {
+							console.error('Error exporting CSV:', err);
+							alert("#{__('Erreur lors de l\'export CSV')}");
+						});
+				});
+			})
+			.catch(err => {
+				console.error('Error loading zone stats:', err);
 			});
-		})
-		.catch(err => {
-			console.error('Error loading zone stats:', err);
-		});
+
+		// Zone search functionality
+		const searchInput = document.getElementById("zone-search-input");
+		const searchResults = document.getElementById("zone-search-results");
+		const searchForm = document.getElementById("zone-search-form");
+		let searchTimeout;
+
+		if(searchInput && searchResults && searchForm) {
+			searchInput.addEventListener("input", (e) => {
+				const query = e.target.value.trim();
+				
+				clearTimeout(searchTimeout);
+				
+				if(query.length < 2) {
+					searchResults.style.display = "none";
+					return;
+				}
+
+				searchTimeout = setTimeout(() => {
+					fetch(`/projects/${projectId}/zones-search?q=${encodeURIComponent(query)}`)
+						.then(res => res.json())
+						.then(data => {
+							searchResults.innerHTML = '';
+							
+							if(data.zones && data.zones.length > 0) {
+								data.zones.forEach(zone => {
+									const item = document.createElement("a");
+									item.classList.add("list-group-item", "list-group-item-action");
+									item.href = `/projects/${projectId}/zones/${zone.id}`;
+									
+									const name = document.createElement("strong");
+									name.textContent = zone.name;
+									
+									const info = document.createElement("small");
+									info.classList.add("text-muted", "ml-2");
+									const adminLevelText = zone.admin_level === 4 ? "#{__('Région')}" : zone.admin_level === 6 ? "#{__('Département')}" : "#{__('Commune')}";
+									info.textContent = adminLevelText;
+									if(zone.insee) {
+										info.textContent += " - INSEE: " + zone.insee;
+									}
+									
+									item.appendChild(name);
+									item.appendChild(document.createTextNode(" "));
+									item.appendChild(info);
+									searchResults.appendChild(item);
+								});
+								searchResults.style.display = "block";
+							} else {
+								const item = document.createElement("div");
+								item.classList.add("list-group-item");
+								item.textContent = "#{__('Aucun résultat')}";
+								searchResults.appendChild(item);
+								searchResults.style.display = "block";
+							}
+						})
+						.catch(err => {
+							console.error('Error searching zones:', err);
+						});
+				}, 300);
+			});
+
+			// Hide results when clicking outside
+			document.addEventListener("click", (e) => {
+				if(!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+					searchResults.style.display = "none";
+				}
+			});
+
+			searchForm.addEventListener("submit", (e) => {
+				e.preventDefault();
+				const query = searchInput.value.trim();
+				if(query.length >= 2) {
+					// Trigger search
+					searchInput.dispatchEvent(new Event("input"));
+				}
+			});
+		}
 

@@ -4,7 +4,7 @@
   "start_date": "2025-01-01",
   "end_date": "2026-06-01",
   "summary": "Les points d'apport volontaire permettent de trier et recycler nos déchets. Cartographions ensemble tous les points d'apport volontaire dans OpenStreetMap ! #Recyclage #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1618477247222-acbdb0e159b3?w=800&auto=format&fit=crop",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Recycling_symbol.svg/800px-Recycling_symbol.svg.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Drecycling"
   },
@@ -56,6 +56,68 @@
     "target": null
   },
   "geographic_zone": "France",
-  "icon": "/images/projects/recycling.png"
+  "icon": "/images/projects/recycling.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'un point d'apport volontaire",
+      "hashtags": "projetdumois,projetdumoisfr,recycling"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "amenity": "recycling",
+            "source": "*"
+          }
+        },
+        {
+          "type": "select",
+          "name": "Type de recyclage",
+          "tag": "recycling_type",
+          "optional": false,
+          "values": [
+            {"v": "glass", "l": "Verre"},
+            {"v": "paper", "l": "Papier"},
+            {"v": "plastic", "l": "Plastique"},
+            {"v": "metal", "l": "Métal"},
+            {"v": "clothes", "l": "Vêtements"},
+            {"v": "batteries", "l": "Piles"},
+            {"v": "electronics", "l": "Électronique"},
+            {"v": "oil", "l": "Huile"},
+            {"v": "organic", "l": "Organique"}
+          ],
+          "description": "Type de matériaux acceptés (peut être une liste séparée par des points-virgules)"
+        },
+        {
+          "type": "text",
+          "name": "Nom",
+          "tag": "name",
+          "optional": true,
+          "description": "Nom du point d'apport volontaire si disponible"
+        },
+        {
+          "type": "text",
+          "name": "Opérateur",
+          "tag": "operator",
+          "optional": true,
+          "description": "Nom de l'opérateur (commune, entreprise, etc.)"
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter un point d'apport volontaire manquant",
+        "edit": "Compléter ce point d'apport volontaire"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
 }
 

@@ -1,0 +1,114 @@
+{
+  "id": "2025-02_playground",
+  "title": "Parcs pour enfants",
+  "start_date": "2025-02-01",
+  "end_date": "2026-06-01",
+  "summary": "Les parcs pour enfants sont essentiels pour le développement et le bien-être des enfants. Cartographions ensemble tous les parcs pour enfants dans OpenStreetMap ! #AireDeJeu #ProjetDuMois",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Playground_icon.svg/800px-Playground_icon.svg.png",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:leisure%3Dplayground"
+  },
+  "quality": {
+    "required_tags": [
+      "access"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/leisure=playground w/leisure=playground r/leisure=playground",
+    "imposm": {
+      "types": ["point", "polygon"],
+      "mapping": {
+        "leisure": ["playground"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Parc pour enfants à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["aire de jeu", "playground", "parc", "enfant", "children", "jeu", "play"]
+    },
+    {
+      "source": "osm",
+      "name": "Parc pour enfants dans OSM",
+      "description": "Ce parc pour enfants existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    },
+    {
+      "source": "background",
+      "tiles": "mapillary",
+      "name": "Photos de rue",
+      "icon": "mapillary",
+      "attribution": "<a href=\"https://www.mapillary.com\" target=\"_blank\">&copy; Mapillary</a>"
+    }
+  ],
+  "statistics": {
+    "count": true
+  },
+  "geographic_zone": "France",
+  "icon": "/images/projects/playground.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'un parc pour enfants",
+      "hashtags": "projetdumois,projetdumoisfr,playground"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "leisure": "playground",
+            "source": "*"
+          }
+        },
+        {
+          "type": "select",
+          "name": "Accès",
+          "tag": "access",
+          "optional": false,
+          "values": [
+            {"v": "yes", "l": "Public"},
+            {"v": "private", "l": "Privé"},
+            {"v": "permissive", "l": "Avec permission"}
+          ]
+        },
+        {
+          "type": "text",
+          "name": "Nom",
+          "tag": "name",
+          "optional": true
+        },
+        {
+          "type": "text",
+          "name": "Opérateur",
+          "tag": "operator",
+          "optional": true,
+          "description": "Gestionnaire (commune, association, etc.)"
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter un parc pour enfants manquant",
+        "edit": "Compléter ce parc pour enfants"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

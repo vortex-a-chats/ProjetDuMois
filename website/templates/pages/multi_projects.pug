@@ -3,11 +3,18 @@ extends ../layout.pug
 block head
 	script(src="/lib/chart.js/chart.min.js")
 	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
+	script(src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js")
 
 block navbar
 	a(href="#others")
 		i.fa.fa-file-download(title=__("Les projets"))
 		span= __("Les projets")
+	a(href="/osm-plein-air")
+		i.fa.fa-mountain(title=__("OSM Plein Air"))
+		span= __("OSM Plein Air")
+	a(href="/notes-france")
+		i.fa.fa-sticky-note(title=__("Notes OSM"))
+		span= __("Notes OSM")
 	a(href="/about")
 		i.fa.fa-flag(title=__("À propos"))
 		span= __("À propos")
@@ -26,7 +33,15 @@ block content
 					//- Global progress chart
 					div.row.mb-4
 						div.col-12
-							h3= __("Progression de tous les projets")
+							div.d-flex.justify-content-between.align-items-center.mb-2
+								h3.mb-0= __("Progression de tous les projets")
+								div.btn-group(role="group")
+									button.btn.btn-sm.btn-outline-secondary#chart-reset-zoom(type="button" style="display: none;")
+										i.fa.fa-home.mr-1
+										= __("Réinitialiser zoom")
+									button.btn.btn-sm.btn-outline-primary#chart-export(type="button")
+										i.fa.fa-download.mr-1
+										= __("Exporter")
 							div(style="position: relative;")
 								div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 								canvas#all-projects-chart.w-100(height="400")
@@ -183,153 +198,222 @@ block content
 						li= __("Seuls les projets avec une augmentation positive sont pris en compte")
 					p.text-muted= __("Les données sont mises à jour quotidiennement.")
 
-	script.
-		// Load all projects progress chart
-		fetch('/api/all-projects-progress')
-		.then(res => res.json())
-		.then(data => {
-			const chartContainer = document.getElementById("all-projects-chart").parentElement;
-			const ctx = document.getElementById("all-projects-chart").getContext("2d");
-			
-			// Generate colors for each project
-			const colors = [
-				'#388E3C', '#1976D2', '#F57C00', '#7B1FA2', '#C2185B',
-				'#0097A7', '#5D4037', '#455A64', '#E64A19', '#00796B',
-				'#0288D1', '#F9A825', '#AD1457', '#6A1B9A', '#00695C'
-			];
-			
-			const datasets = data.projects.map((proj, index) => ({
-				label: proj.title,
-				data: proj.data,
-				fill: false,
-				borderColor: colors[index % colors.length],
-				lineTension: 0,
-				pointRadius: 0,
-				pointHoverRadius: 4
-			}));
-
-			const myChart = new Chart(ctx, {
-				type: "line",
-				data: { datasets: datasets },
-				options: {
-					responsive: true,
-					scales: {
-						xAxes: [{
-							type: 'time',
-							time: {
-								tooltipFormat: "DD/MM/YYYY",
-								displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
-							}
-						}],
-						yAxes: [{
-							ticks: {
-								beginAtZero: true,
-								callback: function(value) {
-									return new Intl.NumberFormat('fr-FR').format(value);
-								}
-							}
-						}]
-					},
-					legend: {
-						display: true,
-						position: 'bottom'
+		script.
+			// Load all projects progress chart
+			fetch('/api/all-projects-progress')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
 					}
-				}
-			});
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.projects || !Array.isArray(data.projects)) {
+						throw new Error('Invalid data format from API');
+					}
+					
+					const chartContainer = document.getElementById("all-projects-chart").parentElement;
+					const ctx = document.getElementById("all-projects-chart").getContext("2d");
+					
+					// Generate colors for each project
+					const colors = [
+						'#388E3C', '#1976D2', '#F57C00', '#7B1FA2', '#C2185B',
+						'#0097A7', '#5D4037', '#455A64', '#E64A19', '#00796B',
+						'#0288D1', '#F9A825', '#AD1457', '#6A1B9A', '#00695C'
+					];
+					
+					const datasets = data.projects.map((proj, index) => ({
+						label: proj.title,
+						data: proj.data || [],
+						fill: false,
+						borderColor: colors[index % colors.length],
+						lineTension: 0,
+						pointRadius: 0,
+						pointHoverRadius: 4
+					}));
 
-			chartContainer.querySelector(".spinner-charts").remove();
-		})
-		.catch(err => {
-			console.error('Error loading all projects progress:', err);
-			document.getElementById("all-projects-chart").parentElement.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique</p>';
-		});
+					if (datasets.length === 0) {
+						throw new Error('No project data available');
+					}
 
-		// Load podiums
-		fetch('/api/podiums')
-		.then(res => res.json())
-		.then(data => {
-			// Contributions podium
-			const contribPodium = document.getElementById("podium-contributions");
-			const contribSpinner = contribPodium.querySelector(".spinner-border");
-			if(contribSpinner) contribSpinner.remove();
-			contribPodium.innerHTML = '';
-			
-			if(data.contributions && data.contributions.length > 0) {
-				const positions = [2, 1, 3]; // Middle, left, right
-				const heights = [200, 150, 120]; // Gold, silver, bronze
-				const colors = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, silver, bronze
-				const medals = ['🥇', '🥈', '🥉'];
-				
-				data.contributions.forEach((proj, index) => {
-					const pos = positions[index];
-					const height = heights[index];
-					const color = colors[index];
-					const medal = medals[index];
+					const myChart = new Chart(ctx, {
+						type: "line",
+						data: { datasets: datasets },
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true,
+										callback: function(value) {
+											return new Intl.NumberFormat('fr-FR').format(value);
+										}
+									}
+								}]
+							},
+							legend: {
+								display: true,
+								position: 'bottom'
+							},
+							plugins: {
+								zoom: {
+									pan: {
+										enabled: true,
+										mode: 'x',
+										speed: 0.5
+									},
+									zoom: {
+										enabled: true,
+										mode: 'x',
+										speed: 0.1,
+										wheel: {
+											enabled: true
+										},
+										pinch: {
+											enabled: true
+										}
+									}
+								}
+							},
+							onZoomComplete: function(scale) {
+								const resetBtn = document.getElementById("chart-reset-zoom");
+								if (resetBtn) resetBtn.style.display = "inline-block";
+							}
+						}
+					});
 					
-					const div = document.createElement("div");
-					div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
-					div.style.order = pos;
-					div.style.justifyContent = "flex-end";
+					// Reset zoom button
+					const resetBtn = document.getElementById("chart-reset-zoom");
+					if (resetBtn) {
+						resetBtn.addEventListener("click", () => {
+							if (myChart.resetZoom) {
+								myChart.resetZoom();
+							}
+							resetBtn.style.display = "none";
+						});
+						
+						// Show reset button when zoomed (using onZoomComplete callback)
+						// The callback is already set in the chart options
+					}
 					
-					const objetsText = "#{__('objets')}";
-					div.innerHTML = 
-						'<div style="height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
-							'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
-							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">' + proj.added.toLocaleString('fr-FR') + '</div>' +
-							'<div style="color: white; font-size: 0.9rem;">' + objetsText + '</div>' +
-						'</div>' +
-						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + '">' +
-							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
-						'</a>';
-					
-					contribPodium.appendChild(div);
+					// Export button
+					const exportBtn = document.getElementById("chart-export");
+					if (exportBtn) {
+						exportBtn.addEventListener("click", () => {
+							const url = myChart.toBase64Image();
+							const link = document.createElement("a");
+							link.download = "progression-projets-" + new Date().toISOString().split("T")[0] + ".png";
+							link.href = url;
+							link.click();
+						});
+					}
+
+					const spinner = chartContainer.querySelector(".spinner-charts");
+					if (spinner) spinner.remove();
+				})
+				.catch(err => {
+					console.error('Error loading all projects progress:', err);
+					const chartContainer = document.getElementById("all-projects-chart").parentElement;
+					const spinner = chartContainer.querySelector(".spinner-charts");
+					if (spinner) spinner.remove();
+					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
 				});
-			} else {
-				contribPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
-			}
 
-			// Quality podium
-			const qualityPodium = document.getElementById("podium-quality");
-			const qualitySpinner = qualityPodium.querySelector(".spinner-border");
-			if(qualitySpinner) qualitySpinner.remove();
-			qualityPodium.innerHTML = '';
-			
-			if(data.quality && data.quality.length > 0) {
-				const positions = [2, 1, 3];
-				const heights = [200, 150, 120];
-				const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
-				const medals = ['🥇', '🥈', '🥉'];
-				
-				data.quality.forEach((proj, index) => {
-					const pos = positions[index];
-					const height = heights[index];
-					const color = colors[index];
-					const medal = medals[index];
+			// Load podiums
+			fetch('/api/podiums')
+				.then(res => res.json())
+				.then(data => {
+					// Contributions podium
+					const contribPodium = document.getElementById("podium-contributions");
+					const contribSpinner = contribPodium.querySelector(".spinner-border");
+					if(contribSpinner) contribSpinner.remove();
+					contribPodium.innerHTML = '';
 					
-					const div = document.createElement("div");
-					div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
-					div.style.order = pos;
-					div.style.justifyContent = "flex-end";
+					if(data.contributions && data.contributions.length > 0) {
+						const positions = [2, 1, 3]; // Middle, left, right
+						const heights = [200, 150, 120]; // Gold, silver, bronze
+						const colors = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, silver, bronze
+						const medals = ['🥇', '🥈', '🥉'];
+						const minHeight = 120; // Hauteur minimum pour toutes les barres
+						
+						data.contributions.forEach((proj, index) => {
+							const pos = positions[index];
+							const height = Math.max(heights[index], minHeight);
+							const color = colors[index];
+							const medal = medals[index];
+							
+							const div = document.createElement("div");
+							div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
+							div.style.order = pos;
+							div.style.justifyContent = "flex-end";
+							
+							const objetsText = "#{__('objets')}";
+							div.innerHTML = 
+								'<div style="min-height: ' + minHeight + 'px; height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
+									'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
+									'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">' + proj.added.toLocaleString('fr-FR') + '</div>' +
+									'<div style="color: white; font-size: 0.9rem;">' + objetsText + '</div>' +
+								'</div>' +
+								'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + '">' +
+									'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
+								'</a>';
+							
+							contribPodium.appendChild(div);
+						});
+					} else {
+						contribPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+					}
+
+					// Quality podium
+					const qualityPodium = document.getElementById("podium-quality");
+					const qualitySpinner = qualityPodium.querySelector(".spinner-border");
+					if(qualitySpinner) qualitySpinner.remove();
+					qualityPodium.innerHTML = '';
 					
-					const ameliorationText = "#{__('amélioration')}";
-					div.innerHTML = 
-						'<div style="height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
-							'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
-							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">+' + proj.increase.toFixed(1) + '%</div>' +
-							'<div style="color: white; font-size: 0.9rem;">' + ameliorationText + '</div>' +
-						'</div>' +
-						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + ' (' + proj.past.toFixed(1) + '% → ' + proj.current.toFixed(1) + '%)">' +
-							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
-						'</a>';
-					
-					qualityPodium.appendChild(div);
-				});
-			} else {
-				qualityPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
-			}
-		})
-		.catch(err => {
-			console.error('Error loading podiums:', err);
-			document.getElementById("podium-contributions").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
-			document.getElementById("podium-quality").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
-		});
+					if(data.quality && data.quality.length > 0) {
+						const positions = [2, 1, 3];
+						const heights = [200, 150, 120];
+						const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+						const medals = ['🥇', '🥈', '🥉'];
+						const minHeight = 120; // Hauteur minimum pour toutes les barres
+						
+						data.quality.forEach((proj, index) => {
+							const pos = positions[index];
+							const height = Math.max(heights[index], minHeight);
+							const color = colors[index];
+							const medal = medals[index];
+							
+							const div = document.createElement("div");
+							div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
+							div.style.order = pos;
+							div.style.justifyContent = "flex-end";
+							
+							const ameliorationText = "#{__('amélioration')}";
+							div.innerHTML = 
+								'<div style="min-height: ' + minHeight + 'px; height: ' + height + 'px; background: linear-gradient(to top, ' + color + ', ' + color + '88); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 10px; margin-bottom: 10px;">' +
+									'<div style="font-size: 2rem; margin-bottom: 5px;">' + medal + '</div>' +
+									'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">+' + proj.increase.toFixed(1) + '%</div>' +
+									'<div style="color: white; font-size: 0.9rem;">' + ameliorationText + '</div>' +
+								'</div>' +
+								'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + ' (' + proj.past.toFixed(1) + '% → ' + proj.current.toFixed(1) + '%)">' +
+									'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
+								'</a>';
+							
+							qualityPodium.appendChild(div);
+						});
+					} else {
+						qualityPodium.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+					}
+					})
+					.catch(err => {
+						console.error('Error loading podiums:', err);
+						document.getElementById("podium-contributions").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+						document.getElementById("podium-quality").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+					});

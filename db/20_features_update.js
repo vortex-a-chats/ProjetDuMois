@@ -196,11 +196,35 @@ if [ "$mode" == "init" ]; then
 else
 	echo "==== Apply latest changes to database"
 	osmium derive-changes "${OSM_PBF_LATEST}" "${OSM_PBF_LATEST_UNSTABLE_FILTERED}" -O -o "${OSC_LOCAL}"
-	imposm diff -mapping "${IMPOSM_YML}" \\
-		-cachedir "${IMPOSM_CACHE_DIR}" \\
-		-dbschema-production public \\
-		-connection "${process.env.DB_URL}?prefix=pdm_" \\
-		"${OSC_LOCAL}"
+	
+	# Check if any project tables exist
+	TABLE_COUNT=$(psql -d ${process.env.DB_URL} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND (table_name LIKE 'pdm_project_%_point' OR table_name LIKE 'pdm_project_%_polygon')" 2>/dev/null | tr -d ' ' || echo "0")
+	
+	if [ "$TABLE_COUNT" = "0" ] || [ -z "$TABLE_COUNT" ]; then
+		echo "WARNING: No project tables found. Running init mode first..."
+		echo "Pre SQL..."
+		${preSQLFull}
+		imposm import -mapping "${IMPOSM_YML}" \\
+			-read "${OSM_PBF_LATEST}" \\
+			-overwritecache -cachedir "${IMPOSM_CACHE_DIR}" \\
+			-diff -diffdir "${IMPOSM_DIFF_DIR}"
+		echo "Post SQL..."
+		${postSQLFull}
+		imposm import -write \\
+			-connection "${process.env.DB_URL}?prefix=pdm_" \\
+			-mapping "${IMPOSM_YML}" \\
+			-cachedir "${IMPOSM_CACHE_DIR}" \\
+			-dbschema-import public -diff
+		psql -d ${process.env.DB_URL} -f "${__dirname}/22_features_post_init.sql"
+		rm -f "${OSM_PBF_LATEST}" "${OSC_LOCAL}"
+		mv "${OSM_PBF_LATEST_UNSTABLE_FILTERED}" "${OSM_PBF_LATEST}"
+	else
+		imposm diff -mapping "${IMPOSM_YML}" \\
+			-cachedir "${IMPOSM_CACHE_DIR}" \\
+			-dbschema-production public \\
+			-connection "${process.env.DB_URL}?prefix=pdm_" \\
+			"${OSC_LOCAL}"
+	fi
 
 	echo "Post Update SQL..."
 	${postUpdateSQLFull}

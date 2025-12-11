@@ -65,17 +65,47 @@ BEGIN
         RETURN;
     END IF;
     
-    -- Calculate completion for each object
+    -- Calculate completion for each object at the given timestamp
+    -- Use historical changes to reconstruct object state at that time
     EXECUTE format('
-        WITH project_objects AS (
+        WITH object_history AS (
+            -- Get the latest change for each object before or at the timestamp
+            SELECT DISTINCT ON (osmid)
+                osmid,
+                tags,
+                ts
+            FROM pdm_changes
+            WHERE project = $2
+                AND ts <= $3
+                AND action != ''delete''
+            ORDER BY osmid, ts DESC, version DESC
+        ),
+        current_objects AS (
+            -- Get objects that exist in the project table (for objects that haven''t changed since timestamp)
             SELECT 
-                osm_id,
+                osm_id::TEXT AS osmid,
                 tags::jsonb AS tags_json
             FROM %I
+            WHERE osm_id::TEXT NOT IN (SELECT osmid FROM object_history WHERE ts <= $3)
+        ),
+        historical_objects AS (
+            -- Objects from history
+            SELECT 
+                osmid,
+                CASE 
+                    WHEN tags IS NULL OR tags = ''{}''::jsonb THEN ''{}''::jsonb
+                    ELSE tags::jsonb
+                END AS tags_json
+            FROM object_history
+        ),
+        all_objects AS (
+            SELECT osmid, tags_json FROM current_objects
+            UNION ALL
+            SELECT osmid, tags_json FROM historical_objects
         ),
         completion_calc AS (
             SELECT 
-                osm_id,
+                osmid,
                 tags_json,
                 ARRAY(
                     SELECT tag FROM unnest($1) AS tag 
@@ -85,12 +115,12 @@ BEGIN
                     SELECT tag FROM unnest($1) AS tag 
                     WHERE NOT (tags_json ? tag)
                 ) AS tags_missing
-            FROM project_objects
+            FROM all_objects
         )
         INSERT INTO pdm_quality_completion (project, osmid, ts, completion_percentage, tags_present, tags_missing)
         SELECT 
             $2 AS project,
-            osm_id::TEXT AS osmid,
+            osmid,
             $3 AS ts,
             CASE 
                 WHEN array_length($1, 1) IS NULL OR array_length($1, 1) = 0 THEN 0

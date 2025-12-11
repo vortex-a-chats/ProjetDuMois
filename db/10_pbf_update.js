@@ -43,24 +43,88 @@ if [ ! -d "${CONFIG.WORK_DIR}" ]; then
 	${separator}
 fi
 
-if [ -f "${OSH_UPDATED}" ]; then
+if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
 	echo "== Reuse existing history file"
 	prev_osh="${OSH_UPDATED}"
 	if [ -f ${CONFIG.WORK_DIR}/osh_timestamp ]; then
 		prev_timestamp=$(cat ${CONFIG.WORK_DIR}/osh_timestamp)
-		echo "Timestamp: $prev_timestamp"
+		if [ -n "$prev_timestamp" ]; then
+			echo "Timestamp: $prev_timestamp"
+			# Check if timestamp is too old (more than 30 days), if so, re-download full file
+			timestamp_age=$(($(date +%s) - $(date -d "$prev_timestamp" +%s 2>/dev/null || echo 0)))
+			max_age=$((30 * 24 * 3600)) # 30 days in seconds
+			if [ $timestamp_age -gt $max_age ] 2>/dev/null; then
+				echo "WARNING: Timestamp is more than 30 days old ($(($timestamp_age / 86400)) days)"
+				echo "         This would require downloading too many incremental changes."
+				echo "         Re-downloading full OSH file instead..."
+				rm -f "${OSH_UPDATED}"
+				prev_osh=""
+			else
+				echo "   => Using existing OSH file: ${OSH_UPDATED}"
+			fi
+		else
+			echo "WARNING: Timestamp file exists but is empty"
+			echo "         Re-downloading full OSH file to ensure consistency..."
+			rm -f "${OSH_UPDATED}"
+			prev_osh=""
+		fi
 	else
-		echo "No timestamp found"
+		echo "WARNING: No timestamp found"
+		echo "         Re-downloading full OSH file to ensure consistency..."
+		rm -f "${OSH_UPDATED}"
+		prev_osh=""
 	fi
-
 else
+	echo "== OSH file not found or is empty"
+	prev_osh=""
+fi
+
+if [ ! -f "${OSH_UPDATED}" ] || [ ! -s "${OSH_UPDATED}" ] || [ -z "$prev_osh" ]; then
 	echo "== Get cookies for authorized download of OSH PBF file"
-	if ! python3 ${__dirname}/../lib/sendfile_osm_oauth_protector/oauth_cookie_client.py \\
-		--osm-host ${CONFIG.OSM_URL} \\
-		-u "${CONFIG.OSM_USER}" -p "${CONFIG.OSM_PASS}" \\
-		-c ${CONFIG.OSH_PBF_URL.split("/").slice(0, 3).join("/")}/get_cookie \\
-		-o "${COOKIES}" 2>&1; then
-		echo "ERROR: Failed to obtain authentication cookie from OSM."
+	
+	# Tentative d'authentification avec retries en cas d'erreur 503
+	MAX_RETRIES=3
+	RETRY_DELAY=10
+	retry_count=0
+	auth_success=false
+	AUTH_OUTPUT="${CONFIG.WORK_DIR}/auth_output.log"
+	
+	while [ $retry_count -lt $MAX_RETRIES ]; do
+		rm -f "\${AUTH_OUTPUT}" "${COOKIES}"
+		auth_output=$(python3 ${__dirname}/../lib/sendfile_osm_oauth_protector/oauth_cookie_client.py \\
+			--osm-host ${CONFIG.OSM_URL} \\
+			-u "${CONFIG.OSM_USER}" -p "${CONFIG.OSM_PASS}" \\
+			-c ${CONFIG.OSH_PBF_URL.split("/").slice(0, 3).join("/")}/get_cookie \\
+			-o "${COOKIES}" 2>&1)
+		auth_exit_code=$?
+		echo "\$auth_output" > "\${AUTH_OUTPUT}"
+		
+		if [ $auth_exit_code -eq 0 ]; then
+			auth_success=true
+			break
+		else
+			retry_count=$((retry_count + 1))
+			# Vérifier si c'est une erreur 503 (service temporairement indisponible)
+			if echo "\$auth_output" | grep -q "HTTP code 503"; then
+				if [ $retry_count -lt $MAX_RETRIES ]; then
+					echo "   ⚠️  OSM service temporarily unavailable (503). Retrying in \${RETRY_DELAY} seconds... (attempt \$retry_count/\$MAX_RETRIES)"
+					sleep $RETRY_DELAY
+					continue
+				else
+					echo "ERROR: OSM service is temporarily unavailable (HTTP 503)."
+					echo "This is usually a temporary issue with the OSM servers."
+					echo "Please try again in a few minutes."
+					rm -f "${COOKIES}" "\${AUTH_OUTPUT}"
+					exit 1
+				fi
+			fi
+		fi
+	done
+	
+	rm -f "\${AUTH_OUTPUT}"
+	
+	if [ "$auth_success" = "false" ]; then
+		echo "ERROR: Failed to obtain authentication cookie from OSM after $MAX_RETRIES attempts."
 		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
 		echo "The OSH PBF file requires OSM authentication to download."
 		rm -f "${COOKIES}"
@@ -113,6 +177,14 @@ else
 	fi
 
 	echo "== Download OSH PBF file"
+	# wget -N ne retélécharge pas si le fichier existe déjà et est à jour
+	# Vérifier d'abord si le fichier existe et est valide
+	if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
+		file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
+		if ! echo "$file_type" | grep -qi "html\|text"; then
+			echo "   => OSH file already exists and appears valid. Using wget -N to check for updates..."
+		fi
+	fi
 	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" -O "${OSH_UPDATED}" "${CONFIG.OSH_PBF_URL}" 2>&1; then
 		echo "ERROR: Failed to download OSH PBF file."
 		echo "This may be due to:"
@@ -169,9 +241,21 @@ ${separator}
 
 if [[ "$mode" != "fast" ]]; then
 	echo "== Build OSC changes with replication files..."
-	osmupdate --keep-tempfiles --day -t="${CONFIG.WORK_DIR}/osmupdate/" -v "$prev_osh" $prev_timestamp "${OSC_UPDATES}"
+	if [ -n "$prev_timestamp" ]; then
+		echo "   => Using incremental update from timestamp: $prev_timestamp"
+		osmupdate --keep-tempfiles --day -t="${CONFIG.WORK_DIR}/osmupdate/" -v "$prev_osh" "$prev_timestamp" "${OSC_UPDATES}"
+	else
+		echo "   => No timestamp available, using full file (no incremental update needed)"
+		# If no timestamp, we just extracted from the full file, so no changes to apply
+		touch "${OSC_UPDATES}"
+	fi
 	echo "== Apply changes to OSH file..."
-	osmium apply-changes --progress -H "$prev_osh" "${OSC_UPDATES}" -O -o "${OSH_UPDATED_NEW}"
+	if [ -n "$prev_timestamp" ] && [ -s "${OSC_UPDATES}" ]; then
+		osmium apply-changes --progress -H "$prev_osh" "${OSC_UPDATES}" -O -o "${OSH_UPDATED_NEW}"
+	else
+		echo "   => No changes to apply (using existing file or no timestamp)"
+		cp "$prev_osh" "${OSH_UPDATED_NEW}"
+	fi
 	echo "== Extract polygon data..."
 		# Ensure polygon file exists; download from Geofabrik if missing
 		if [ ! -f "${OSH_POLY}" ] || [ ! -s "${OSH_POLY}" ]; then
@@ -215,7 +299,6 @@ if (!fs.existsSync(CONFIG.WORK_DIR)) {
 	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
 }
 
-fs.writeFile(OUTPUT_SCRIPT, script, { mode: 0o766 }, err => {
-	if(err) { throw new Error(err); }
-	console.log("Written Bash script");
-});
+fs.writeFileSync(OUTPUT_SCRIPT, script);
+fs.chmodSync(OUTPUT_SCRIPT, '755');
+console.log("Written Bash script");

@@ -1,0 +1,110 @@
+{
+  "id": "2025-02_fire_hydrant",
+  "title": "Bornes incendie",
+  "start_date": "2025-02-01",
+  "end_date": "2026-06-01",
+  "summary": "Les bornes incendie sont essentielles pour la sécurité incendie. Cartographions ensemble toutes les bornes incendie dans OpenStreetMap ! #BorneIncendie #ProjetDuMois",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Fire_hydrant_icon.svg/800px-Fire_hydrant_icon.svg.png",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:emergency%3Dfire_hydrant"
+  },
+  "quality": {
+    "required_tags": [
+      "fire_hydrant:type"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/emergency=fire_hydrant",
+    "imposm": {
+      "types": ["point"],
+      "mapping": {
+        "emergency": ["fire_hydrant"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Borne incendie à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["borne", "incendie", "fire", "hydrant", "poteau", "incendie"]
+    },
+    {
+      "source": "osm",
+      "name": "Borne incendie dans OSM",
+      "description": "Cette borne incendie existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    },
+    {
+      "source": "background",
+      "tiles": "mapillary",
+      "name": "Photos de rue",
+      "icon": "mapillary",
+      "attribution": "<a href=\"https://www.mapillary.com\" target=\"_blank\">&copy; Mapillary</a>"
+    }
+  ],
+  "statistics": {
+    "count": true
+  },
+  "geographic_zone": "France",
+  "icon": "/images/projects/fire_hydrant.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'une borne incendie",
+      "hashtags": "projetdumois,projetdumoisfr,fire_hydrant"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "emergency": "fire_hydrant",
+            "source": "*"
+          }
+        },
+        {
+          "type": "select",
+          "name": "Type de borne",
+          "tag": "fire_hydrant:type",
+          "optional": false,
+          "values": [
+            {"v": "pillar", "l": "Poteau"},
+            {"v": "underground", "l": "Souterraine"},
+            {"v": "wall", "l": "Murale"},
+            {"v": "pipe", "l": "Tuyau"}
+          ],
+          "description": "Type de borne incendie"
+        },
+        {
+          "type": "text",
+          "name": "Référence",
+          "tag": "ref",
+          "optional": true,
+          "description": "Numéro de référence de la borne"
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter une borne incendie manquante",
+        "edit": "Compléter cette borne incendie"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

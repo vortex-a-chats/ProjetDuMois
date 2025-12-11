@@ -137,10 +137,13 @@ Object.values(projects).forEach(project => {
 	projectsQry += `('${project.id}', '${project.start_date}', '${project.end_date}'),`;
 	projectLength++;
 
-	Object.entries(project.statistics.points).forEach(([contrib,value]) => {
-		projectPointsQry += `('${project.id}','${contrib}', ${value}),`;
-		projectPointsLength++;
-	});
+	// Vérifier que statistics et statistics.points existent avant de les utiliser
+	if (project.statistics && project.statistics.points && typeof project.statistics.points === 'object') {
+		Object.entries(project.statistics.points).forEach(([contrib,value]) => {
+			projectPointsQry += `('${project.id}','${contrib}', ${value}),`;
+			projectPointsLength++;
+		});
+	}
 });
 
 projectsQry = `${projectsQry.substring(0, projectsQry.length-1)} ON CONFLICT (project) DO UPDATE SET start_date=EXCLUDED.start_date, end_date=EXCLUDED.end_date`;
@@ -187,6 +190,17 @@ if [ -f ${CONFIG.WORK_DIR}/osh_timestamp ]; then
         echo "OSH Timestamp: $osh_timestamp"
 else
         echo "No OSH timestamp found"
+fi
+${separator}
+`;
+
+// Vérifier que le fichier OSH existe avant de traiter les projets
+script += `
+# Vérifier que le fichier OSH existe
+if [ ! -f "${OSH_UPDATED}" ]; then
+	echo "ERROR: OSH file not found: ${OSH_UPDATED}"
+	echo "Please run 'update_pbf' first to download and update the OSH file."
+	exit 1
 fi
 ${separator}
 `;
@@ -397,9 +411,8 @@ if (!fs.existsSync(CONFIG.WORK_DIR)) {
 	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
 }
 
-fs.writeFile(OUTPUT_SCRIPT, script, { mode: 0o766 }, err => {
-	if(err) { throw new Error(err); }
-	console.log("Written Bash script");
-	// Force process exit to avoid hanging on async promises
-	setTimeout(() => process.exit(0), 1000);
-});
+fs.writeFileSync(OUTPUT_SCRIPT, script);
+fs.chmodSync(OUTPUT_SCRIPT, '755');
+console.log("Written Bash script");
+// Force process exit to avoid hanging on async promises
+setTimeout(() => process.exit(0), 1000);

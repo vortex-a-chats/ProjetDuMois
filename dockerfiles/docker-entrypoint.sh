@@ -13,7 +13,8 @@ AVAILABLE_COMMANDS=(
     "update_features: Update OSM features in database"
     "update_projects: Update project statistics and history"
     "update_quality: Calculate quality completion only"
-    "update_daily: Run daily updates (PBF, features, projects)"
+    "update_global_stats: Update global statistics (notes France, hiking routes)"
+    "update_daily: Run daily updates (PBF, features, projects, global stats)"
     "uninstall: Uninstall projects from database"
     "list: List all available commands"
     "help: Show this help message"
@@ -290,6 +291,17 @@ NODE
         echo "✓ Tous les projets ont été traités avec succès"
     fi
     ;;
+"update_global_stats")
+    node db/40_global_stats_update.js
+    if [ -f "/tmp/pdm/41_global_stats_update_tmp.sh" ]; then
+        /tmp/pdm/41_global_stats_update_tmp.sh
+    elif [ -f "./db/41_global_stats_update_tmp.sh" ]; then
+        ./db/41_global_stats_update_tmp.sh
+    else
+        echo "ERROR: Script 41_global_stats_update_tmp.sh not found"
+        exit 1
+    fi
+    ;;
 "update_daily")
     npm run pbf:update $otherArgs
     if [ -f "/tmp/pdm/11_pbf_update_tmp.sh" ]; then
@@ -364,6 +376,17 @@ NODE
         fi
     else
         echo "Aucun projet avec quality.required_tags détecté."
+    fi
+    echo ""
+    echo "== Update global statistics"
+    node db/40_global_stats_update.js
+    if [ -f "/tmp/pdm/41_global_stats_update_tmp.sh" ]; then
+        /tmp/pdm/41_global_stats_update_tmp.sh
+    elif [ -f "./db/41_global_stats_update_tmp.sh" ]; then
+        ./db/41_global_stats_update_tmp.sh
+    else
+        echo "ERROR: Script 41_global_stats_update_tmp.sh not found"
+        exit 1
     fi
     ;;
 "uninstall")

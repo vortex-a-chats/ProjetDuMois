@@ -1,0 +1,107 @@
+{
+  "id": "2025-02_drinking_water",
+  "title": "Fontaines à eau",
+  "start_date": "2025-02-01",
+  "end_date": "2026-06-01",
+  "summary": "Les fontaines à eau sont essentielles pour l'hydratation en ville. Cartographions ensemble toutes les fontaines à eau dans OpenStreetMap ! #Fontaines #EauPotable #ProjetDuMois",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Drinking_water_fountain_icon.svg/800px-Drinking_water_fountain_icon.svg.png",
+  "links": {
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Ddrinking_water"
+  },
+  "quality": {
+    "required_tags": [
+      "access"
+    ]
+  },
+  "database": {
+    "osmium_tag_filter": "n/amenity=drinking_water",
+    "imposm": {
+      "types": ["point"],
+      "mapping": {
+        "amenity": ["drinking_water"]
+      }
+    }
+  },
+  "datasources": [
+    {
+      "source": "notes",
+      "name": "Fontaine à intégrer",
+      "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
+      "terms": ["fontaine", "eau", "potable", "drinking", "water", "fountain"]
+    },
+    {
+      "source": "osm",
+      "name": "Fontaine dans OSM",
+      "description": "Cette fontaine existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+    },
+    {
+      "source": "background",
+      "tiles": [
+        "https://wxs.ign.fr/pratique/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg"
+      ],
+      "name": "Vue aérienne",
+      "icon": "aerial",
+      "attribution": "<a href=\"https://openstreetmap.fr/bdortho\" target=\"_blank\">&copy; BDOrtho IGN</a>"
+    },
+    {
+      "source": "background",
+      "tiles": "mapillary",
+      "name": "Photos de rue",
+      "icon": "mapillary",
+      "attribution": "<a href=\"https://www.mapillary.com\" target=\"_blank\">&copy; Mapillary</a>"
+    }
+  ],
+  "statistics": {
+    "count": true
+  },
+  "geographic_zone": "France",
+  "icon": "/images/projects/drinking_water.png",
+  "editors": {
+    "all": {
+      "comment": "Ajout d'une fontaine à eau",
+      "hashtags": "projetdumois,projetdumoisfr,drinking_water"
+    },
+    "pdm": {
+      "fields": [
+        {
+          "type": "hidden",
+          "tags": {
+            "amenity": "drinking_water",
+            "source": "*"
+          }
+        },
+        {
+          "type": "select",
+          "name": "Accès",
+          "tag": "access",
+          "optional": false,
+          "values": [
+            {"v": "yes", "l": "Public"},
+            {"v": "private", "l": "Privé"},
+            {"v": "customers", "l": "Clients uniquement"}
+          ]
+        },
+        {
+          "type": "text",
+          "name": "Nom",
+          "tag": "name",
+          "optional": true
+        },
+        {
+          "type": "textarea",
+          "name": "Autres informations",
+          "tag": "note",
+          "optional": true
+        }
+      ],
+      "title": {
+        "add": "Ajouter une fontaine à eau manquante",
+        "edit": "Compléter cette fontaine à eau"
+      }
+    },
+    "iD": {
+      "background": "fr.ign.bdortho"
+    }
+  }
+}
+

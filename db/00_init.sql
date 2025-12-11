@@ -79,6 +79,16 @@ CREATE TABLE pdm_note_counts(
 
 CREATE INDEX ON pdm_note_counts(project);
 
+-- Global note counts (France)
+CREATE TABLE IF NOT EXISTS pdm_note_counts_global(
+	ts TIMESTAMP NOT NULL,
+	open INT NOT NULL,
+	closed INT NOT NULL,
+	CONSTRAINT pdm_note_counts_global_pk PRIMARY KEY(ts)
+);
+
+CREATE INDEX ON pdm_note_counts_global(ts);
+
 -- Statistics per project and administrative boundary
 -- boundary can be null until we'll able to get geometry of deleted features
 CREATE TABLE pdm_features_boundary (
@@ -201,17 +211,47 @@ BEGIN
         RETURN;
     END IF;
     
-    -- Calculate completion for each object
+    -- Calculate completion for each object at the given timestamp
+    -- Use historical changes to reconstruct object state at that time
     EXECUTE format('
-        WITH project_objects AS (
+        WITH object_history AS (
+            -- Get the latest change for each object before or at the timestamp
+            SELECT DISTINCT ON (osmid)
+                osmid,
+                tags,
+                ts
+            FROM pdm_changes
+            WHERE project = $2
+                AND ts <= $3
+                AND action != ''delete''
+            ORDER BY osmid, ts DESC, version DESC
+        ),
+        current_objects AS (
+            -- Get objects that exist in the project table (for objects that haven''t changed since timestamp)
             SELECT 
-                osm_id,
+                osm_id::TEXT AS osmid,
                 tags::jsonb AS tags_json
             FROM %I
+            WHERE osm_id::TEXT NOT IN (SELECT osmid FROM object_history WHERE ts <= $3)
+        ),
+        historical_objects AS (
+            -- Objects from history
+            SELECT 
+                osmid,
+                CASE 
+                    WHEN tags IS NULL OR tags = ''{}''::jsonb THEN ''{}''::jsonb
+                    ELSE tags::jsonb
+                END AS tags_json
+            FROM object_history
+        ),
+        all_objects AS (
+            SELECT osmid, tags_json FROM current_objects
+            UNION ALL
+            SELECT osmid, tags_json FROM historical_objects
         ),
         completion_calc AS (
             SELECT 
-                osm_id,
+                osmid,
                 tags_json,
                 ARRAY(
                     SELECT tag FROM unnest($1) AS tag 
@@ -221,12 +261,12 @@ BEGIN
                     SELECT tag FROM unnest($1) AS tag 
                     WHERE NOT (tags_json ? tag)
                 ) AS tags_missing
-            FROM project_objects
+            FROM all_objects
         )
         INSERT INTO pdm_quality_completion (project, osmid, ts, completion_percentage, tags_present, tags_missing)
         SELECT 
             $2 AS project,
-            osm_id::TEXT AS osmid,
+            osmid,
             $3 AS ts,
             CASE 
                 WHEN array_length($1, 1) IS NULL OR array_length($1, 1) = 0 THEN 0
@@ -296,6 +336,31 @@ BEGIN
     
 END;
 $$ LANGUAGE plpgsql;
+
+-- OSM Plein Air - Hiking routes tables
+CREATE TABLE IF NOT EXISTS pdm_relation_hiking (
+    osm_id BIGINT PRIMARY KEY,
+    name VARCHAR,
+    tags JSONB,
+    geom GEOMETRY(Polygon, 3857),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS pdm_relation_hiking_geom_idx ON pdm_relation_hiking USING GIST(geom);
+CREATE INDEX IF NOT EXISTS pdm_relation_hiking_name_idx ON pdm_relation_hiking(name);
+
+CREATE TABLE IF NOT EXISTS pdm_relation_hiking_members (
+    relation_id BIGINT NOT NULL,
+    ts TIMESTAMP NOT NULL,
+    member_count INT NOT NULL,
+    changeset_id BIGINT,
+    username VARCHAR,
+    userid BIGINT,
+    CONSTRAINT pdm_relation_hiking_members_pk PRIMARY KEY(relation_id, ts)
+);
+
+CREATE INDEX IF NOT EXISTS pdm_relation_hiking_members_relation_idx ON pdm_relation_hiking_members(relation_id);
+CREATE INDEX IF NOT EXISTS pdm_relation_hiking_members_ts_idx ON pdm_relation_hiking_members(ts);
 
 -- Function to generate badges for a single user and project
 CREATE OR REPLACE FUNCTION pdm_get_badges(the_project VARCHAR, the_userid BIGINT) RETURNS TABLE (id VARCHAR, name VARCHAR, description VARCHAR, acquired BOOLEAN, progress INT) AS $$
