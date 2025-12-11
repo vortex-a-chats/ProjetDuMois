@@ -1,39 +1,39 @@
 {
-  "id": "2024-12_manholes",
-  "title": "Bouches d'égout",
+  "id": "2024-12_drinking_water",
+  "title": "Points d'eau potable",
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
-  "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "summary": "Les points d'eau potable sont essentiels pour les usagers. Cartographions ensemble tous les points d'eau potable dans OpenStreetMap ! #EauPotable #ProjetDuMois",
+  "image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=800&auto=format&fit=crop",
   "links": {
-    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Ddrinking_water"
   },
   "quality": {
     "required_tags": [
-      "manhole",
-      "material"
+      "drinking_water",
+      "access"
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "n/amenity=drinking_water",
     "imposm": {
       "types": ["point"],
       "mapping": {
-        "man_made": ["manhole"]
+        "amenity": ["drinking_water"]
       }
     }
   },
   "datasources": [
     {
       "source": "notes",
-      "name": "Bouche d'égout à intégrer",
+      "name": "Point d'eau à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
-      "terms": ["bouche", "égout", "manhole", "regard"]
+      "terms": ["eau", "potable", "fontaine", "drinking", "water"]
     },
     {
       "source": "osm",
-      "name": "Bouche d'égout dans OSM",
-      "description": "Cette bouche d'égout existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+      "name": "Point d'eau dans OSM",
+      "description": "Ce point d'eau existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
     },
     {
       "source": "background",
@@ -56,7 +56,7 @@
   ],
   "statistics": {
     "count": true,
-    "feature_name": "bouches d'égout",
+    "feature_name": "points d'eau potable",
     "points": {
       "add": 2,
       "edit": 1,
@@ -65,34 +65,39 @@
   },
   "editors": {
     "all": {
-      "comment": "Ajout d'une bouche d'égout",
-      "hashtags": "projetdumois,projetdumoisfr,manhole"
+      "comment": "Ajout d'un point d'eau potable",
+      "hashtags": "projetdumois,projetdumoisfr,drinking_water"
     },
     "pdm": {
       "fields": [
         {
           "type": "hidden",
           "tags": {
-            "man_made": "manhole",
+            "amenity": "drinking_water",
             "source": "*"
           }
         },
         {
           "type": "select",
           "name": "Type",
-          "tag": "manhole",
+          "tag": "drinking_water",
           "optional": true,
           "values": [
-            {"v": "drain", "l": "Égout pluvial"},
-            {"v": "sewer", "l": "Égout sanitaire"},
-            {"v": "combined", "l": "Égout mixte"}
+            {"v": "fountain", "l": "Fontaine"},
+            {"v": "tap", "l": "Robinet"},
+            {"v": "bottle_tap", "l": "Robinet pour bouteille"}
           ]
         },
         {
-          "type": "text",
-          "name": "Matériau",
-          "tag": "material",
-          "optional": true
+          "type": "select",
+          "name": "Accès",
+          "tag": "access",
+          "optional": true,
+          "values": [
+            {"v": "yes", "l": "Public"},
+            {"v": "private", "l": "Privé"},
+            {"v": "customers", "l": "Clients uniquement"}
+          ]
         },
         {
           "type": "textarea",
@@ -102,8 +107,8 @@
         }
       ],
       "title": {
-        "add": "Ajouter une bouche d'égout manquante",
-        "edit": "Compléter cette bouche d'égout"
+        "add": "Ajouter un point d'eau potable manquant",
+        "edit": "Compléter ce point d'eau potable"
       }
     },
     "iD": {

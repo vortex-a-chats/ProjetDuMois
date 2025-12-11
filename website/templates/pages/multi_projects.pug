@@ -27,16 +27,25 @@ block content
 									img(src=proj.icon alt="" style="height: 100px")
 								div.media-body.align-self-center
 									a.text-decoration-none(href=`/projects/${proj.id}`)= proj.title
-									if proj.stats && proj.stats.completion !== null
-										- var completion = proj.stats.completion || 0
-										- // Plus vert = plus de complétion (0% = rouge, 100% = vert foncé)
-										- var hue = Math.min(120, completion * 1.2) // 0-120 (rouge à vert)
-										- var saturation = Math.min(85, 30 + completion * 0.55) // Saturation plus élevée pour les hauts pourcentages
-										- var lightness = Math.max(35, 50 - completion * 0.15) // Plus sombre pour les hauts pourcentages (vert foncé)
+									if proj.stats && proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
+										- var count = proj.stats.last30Days || 0
+										- // Plus vert = plus d'objets intégrés (0 = rouge, beaucoup = vert foncé)
+										- // Utiliser une échelle logarithmique pour la couleur
+										- var maxForColor = 1000 // Au-delà de 1000 objets, on considère que c'est vert foncé
+										- var normalized = Math.min(100, (count / maxForColor) * 100)
+										- var hue = Math.min(120, normalized * 1.2) // 0-120 (rouge à vert)
+										- var saturation = Math.min(85, 30 + normalized * 0.55)
+										- var lightness = Math.max(35, 50 - normalized * 0.15)
 										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+										- var tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
 										div.mt-2
-											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500;`)
-												= `${completion}% complété`
+											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
+												= `${count.toLocaleString('fr-FR')} objets`
+									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
+										- // Afficher "0 objets" pour les projets sans données encore
+										div.mt-2
+											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible pour les 30 derniers jours")
+												= "0 objet"
 
 	//- Other projects
 	a#others
@@ -57,13 +66,21 @@ block content
 									a.text-decoration-none(href=`/projects/${proj.id}`)
 										| #{proj.title}
 										span.text-muted.d-block= new Date(proj.month).toLocaleString(getLocale(), { month: 'long', year: 'numeric' })
-									if proj.stats && proj.stats.completion !== null
-										- var completion = proj.stats.completion || 0
-										- // Plus vert = plus de complétion (0% = rouge, 100% = vert foncé)
-										- var hue = Math.min(120, completion * 1.2) // 0-120 (rouge à vert)
-										- var saturation = Math.min(85, 30 + completion * 0.55) // Saturation plus élevée pour les hauts pourcentages
-										- var lightness = Math.max(35, 50 - completion * 0.15) // Plus sombre pour les hauts pourcentages (vert foncé)
+									if proj.stats && proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
+										- var count = proj.stats.last30Days || 0
+										- // Plus vert = plus d'objets intégrés (0 = rouge, beaucoup = vert foncé)
+										- var maxForColor = 1000
+										- var normalized = Math.min(100, (count / maxForColor) * 100)
+										- var hue = Math.min(120, normalized * 1.2)
+										- var saturation = Math.min(85, 30 + normalized * 0.55)
+										- var lightness = Math.max(35, 50 - normalized * 0.15)
 										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+										- var tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
 										div.mt-1
-											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500;`)
-												= `${completion}% complété`
+											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
+												= `${count.toLocaleString('fr-FR')} objets`
+									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
+										- // Afficher "0 objets" pour les projets sans données encore
+										div.mt-1
+											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible pour les 30 derniers jours")
+												= "0 objet"

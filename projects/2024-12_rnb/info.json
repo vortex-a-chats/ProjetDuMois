@@ -1,39 +1,39 @@
 {
-  "id": "2024-12_manholes",
-  "title": "Bouches d'égout",
+  "id": "2024-12_rnb",
+  "title": "Référentiel National des Bâtiments",
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
-  "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "summary": "Le Référentiel National des Bâtiments (RNB) permet d'améliorer la qualité des données sur les bâtiments. Ajoutons les références RNB aux bâtiments dans OpenStreetMap ! #RNB #ProjetDuMois",
+  "image": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop",
   "links": {
-    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Référentiel_National_des_Bâtiments"
   },
   "quality": {
     "required_tags": [
-      "manhole",
-      "material"
+      "ref:FR:RNB",
+      "building"
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "w/ref:FR:RNB",
     "imposm": {
-      "types": ["point"],
+      "types": ["polygon"],
       "mapping": {
-        "man_made": ["manhole"]
+        "ref:FR:RNB": ["*"]
       }
     }
   },
   "datasources": [
     {
       "source": "notes",
-      "name": "Bouche d'égout à intégrer",
+      "name": "Bâtiment RNB à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
-      "terms": ["bouche", "égout", "manhole", "regard"]
+      "terms": ["rnb", "référentiel", "bâtiment", "building"]
     },
     {
       "source": "osm",
-      "name": "Bouche d'égout dans OSM",
-      "description": "Cette bouche d'égout existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+      "name": "Bâtiment avec RNB dans OSM",
+      "description": "Ce bâtiment existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
     },
     {
       "source": "background",
@@ -56,7 +56,7 @@
   ],
   "statistics": {
     "count": true,
-    "feature_name": "bouches d'égout",
+    "feature_name": "bâtiments avec RNB",
     "points": {
       "add": 2,
       "edit": 1,
@@ -65,34 +65,22 @@
   },
   "editors": {
     "all": {
-      "comment": "Ajout d'une bouche d'égout",
-      "hashtags": "projetdumois,projetdumoisfr,manhole"
+      "comment": "Ajout de la référence RNB à un bâtiment",
+      "hashtags": "projetdumois,projetdumoisfr,rnb"
     },
     "pdm": {
       "fields": [
         {
           "type": "hidden",
           "tags": {
-            "man_made": "manhole",
             "source": "*"
           }
         },
         {
-          "type": "select",
-          "name": "Type",
-          "tag": "manhole",
-          "optional": true,
-          "values": [
-            {"v": "drain", "l": "Égout pluvial"},
-            {"v": "sewer", "l": "Égout sanitaire"},
-            {"v": "combined", "l": "Égout mixte"}
-          ]
-        },
-        {
           "type": "text",
-          "name": "Matériau",
-          "tag": "material",
-          "optional": true
+          "name": "Référence RNB",
+          "tag": "ref:FR:RNB",
+          "description": "Identifiant du bâtiment dans le Référentiel National des Bâtiments"
         },
         {
           "type": "textarea",
@@ -102,8 +90,8 @@
         }
       ],
       "title": {
-        "add": "Ajouter une bouche d'égout manquante",
-        "edit": "Compléter cette bouche d'égout"
+        "add": "Ajouter une référence RNB manquante",
+        "edit": "Compléter cette référence RNB"
       }
     },
     "iD": {

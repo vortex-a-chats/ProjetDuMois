@@ -36,6 +36,7 @@ services:
       - ./package.json:/opt/pdm/package.json:ro
       - ./dockerfiles/docker-entrypoint.sh:/opt/pdm/docker-entrypoint.sh:ro
       - ./lib:/opt/pdm/lib:ro
+      - ./config.json:/opt/pdm/config.json:ro
     environment:
       - DB_URL=postgres://postgres:pgpassword@pgsqldb:5432/pdm
     entrypoint: ["/bin/bash", "-c"]

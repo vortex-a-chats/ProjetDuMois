@@ -1,39 +1,40 @@
 {
-  "id": "2024-12_manholes",
-  "title": "Bouches d'égout",
+  "id": "2024-12_contact_email",
+  "title": "Lieux avec email",
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
-  "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "summary": "Les lieux avec une adresse email sont plus facilement contactables. Complétons les informations de contact dans OpenStreetMap ! #ContactEmail #ProjetDuMois",
+  "image": "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop",
   "links": {
-    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:contact:email"
   },
   "quality": {
     "required_tags": [
-      "manhole",
-      "material"
+      "contact:email",
+      "name"
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "n/contact:email w/contact:email",
     "imposm": {
-      "types": ["point"],
+      "types": ["point", "polygon"],
       "mapping": {
-        "man_made": ["manhole"]
+        "contact:email": ["*"],
+        "email": ["*"]
       }
     }
   },
   "datasources": [
     {
       "source": "notes",
-      "name": "Bouche d'égout à intégrer",
+      "name": "Lieu avec email à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
-      "terms": ["bouche", "égout", "manhole", "regard"]
+      "terms": ["email", "contact", "courriel"]
     },
     {
       "source": "osm",
-      "name": "Bouche d'égout dans OSM",
-      "description": "Cette bouche d'égout existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+      "name": "Lieu avec email dans OSM",
+      "description": "Ce lieu existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations de contact si nécessaire."
     },
     {
       "source": "background",
@@ -56,7 +57,7 @@
   ],
   "statistics": {
     "count": true,
-    "feature_name": "bouches d'égout",
+    "feature_name": "lieux avec email",
     "points": {
       "add": 2,
       "edit": 1,
@@ -65,33 +66,33 @@
   },
   "editors": {
     "all": {
-      "comment": "Ajout d'une bouche d'égout",
-      "hashtags": "projetdumois,projetdumoisfr,manhole"
+      "comment": "Ajout d'une adresse email de contact",
+      "hashtags": "projetdumois,projetdumoisfr,contact_email"
     },
     "pdm": {
       "fields": [
         {
           "type": "hidden",
           "tags": {
-            "man_made": "manhole",
             "source": "*"
           }
         },
         {
-          "type": "select",
-          "name": "Type",
-          "tag": "manhole",
-          "optional": true,
-          "values": [
-            {"v": "drain", "l": "Égout pluvial"},
-            {"v": "sewer", "l": "Égout sanitaire"},
-            {"v": "combined", "l": "Égout mixte"}
-          ]
+          "type": "text",
+          "name": "Email de contact",
+          "tag": "contact:email",
+          "description": "Adresse email de contact (format: contact@exemple.fr)"
         },
         {
           "type": "text",
-          "name": "Matériau",
-          "tag": "material",
+          "name": "Téléphone",
+          "tag": "contact:phone",
+          "optional": true
+        },
+        {
+          "type": "text",
+          "name": "Site web",
+          "tag": "contact:website",
           "optional": true
         },
         {
@@ -102,8 +103,8 @@
         }
       ],
       "title": {
-        "add": "Ajouter une bouche d'égout manquante",
-        "edit": "Compléter cette bouche d'égout"
+        "add": "Ajouter une adresse email de contact",
+        "edit": "Compléter les informations de contact"
       }
     },
     "iD": {

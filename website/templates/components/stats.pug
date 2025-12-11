@@ -31,6 +31,7 @@ div.row
 	//- Charts
 	div.col-12.mb-2#stats-chart-container
 		h3= __("Avancement")
+		div#stats-chart-info.mb-2
 		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 		canvas#stats-chart.w-100(height="300")
 
@@ -43,6 +44,23 @@ div.row
 		h3= __("Clés fréquentes")
 		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 		canvas#stats-chart-keys.w-100(height="300")
+
+	//- Keys list
+	div.col-lg-6.mb-2
+		h3= __("Clés les plus utilisées")
+		ul#stats-keys-list.list-group
+		button#stats-keys-show-more.btn.btn-sm.btn-outline-primary.mt-2.d-none= __("Afficher plus")
+
+	//- EV charging sockets (project specific)
+	div.col-lg-6.mb-2.d-none
+		h3= __("Borne de recharge - prises recensées")
+		ul#stats-sockets.list-group
+
+	div.col-12.mb-2#stats-chart-quality-container
+		h3= __("Qualité de complétion")
+		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+		canvas#stats-chart-quality.w-100(height="300")
+		div#stats-quality-info.mt-3
 
 script.
 	const projectDays = !{JSON.stringify(days)};
@@ -76,10 +94,20 @@ script.
 			};
 
 			// Blocks for small stats
-			if(res.added) { addBlock(numberFormat.format(res.added), "#{title.toLowerCase()} ajoutés"); }
-			if(res.count) { addBlock(numberFormat.format(res.count), "#{title.toLowerCase()} au total dans OSM"); }
-			if(res.tasksSolved !== undefined) { addBlock(numberFormat.format(res.tasksSolved), "#{statistics.osmose_tasks}"); }
-			addBlock(numberFormat.format(res.nbContributors), "#{__("personnes ayant contribué")}");
+			if(res.added) { addBlock(numberFormat.format(res.added), "#{title.toLowerCase()} ajoutés 🧭"); }
+			if(res.count) { addBlock(numberFormat.format(res.count), "#{title.toLowerCase()} au total dans OSM 🗺️"); }
+			if(res.tasksSolved !== undefined) { addBlock(numberFormat.format(res.tasksSolved), "#{statistics.osmose_tasks} ✅"); }
+			addBlock(numberFormat.format(res.nbContributors), "#{__("personnes ayant contribué")} 👥");
+			if(res.addedWeek != null) { addBlock(numberFormat.format(res.addedWeek), "#{__("Ajouts sur 7 jours")} 📆"); }
+			if(res.added30d != null) { addBlock(numberFormat.format(res.added30d), "#{__("Ajouts sur 30 jours")} 🗓️"); }
+			if(res.added180d != null) { addBlock(numberFormat.format(res.added180d), "#{__("Ajouts sur 6 mois")} 📈"); }
+			if(res.added365d != null) { addBlock(numberFormat.format(res.added365d), "#{__("Ajouts sur 12 mois")} 🚀"); }
+			if(res.avgPerContributor != null) { addBlock(res.avgPerContributor.toFixed(1), "#{__("Objets ajoutés / personne (moy.)")} 🧑‍💻"); }
+			if(res.remaining != null) { addBlock(numberFormat.format(res.remaining), "#{__("Objets restants (estim.)")} ⏳"); }
+			if(res.remainingPerContributor != null) { addBlock(numberFormat.format(res.remainingPerContributor), "#{__("Restant / personne (estim.)")} 🙋"); }
+			if(res.etaDays != null) { addBlock("~"+Math.ceil(res.etaDays), "#{__("Jours restants au rythme actuel (estim.)")} 🕒"); }
+			if(res.avgPerCommune != null) { addBlock(numberFormat.format(res.avgPerCommune.toFixed(1)), "#{__("Objets intégrés / commune (estim.)")} 🏘️"); }
+			if(res.contributorsPerCommune != null) { addBlock(res.contributorsPerCommune.toFixed(2), "#{__("Contributeurs / commune (estim.)")} 🤝"); }
 
 			// Leaderboard
 			if(res.leaderboard && res.leaderboard.length > 0) {
@@ -244,12 +272,64 @@ script.
 				document.getElementById("stats-chart-notes-container").classList.add("d-none");
 			}
 
+			// Display geographic zone and start date info
+			if(res.geographicZone || res.projectStartDate) {
+				const chartInfo = document.getElementById("stats-chart-info");
+				chartInfo.innerHTML = '';
+				const infoText = [];
+				if(res.geographicZone) {
+					infoText.push(`<strong>#{__("Zone géographique")}:</strong> ${res.geographicZone}`);
+				}
+				if(res.projectStartDate) {
+					const startDate = new Date(res.projectStartDate + 'T00:00:00Z');
+					infoText.push(`<strong>#{__("Date de début")}:</strong> ${startDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+				}
+				if(infoText.length > 0) {
+					chartInfo.innerHTML = '<small class="text-muted">' + infoText.join(' • ') + '</small>';
+				}
+			}
+
 			// Evolution chart
 			const ctx = document.getElementById("stats-chart").getContext("2d");
+			
+			// Prepare datasets with vertical line for project start date
+			const chartDatasets = [...res.chart];
+			if(res.projectStartDate && res.chart && res.chart.length > 0) {
+				// Find min and max Y values to draw vertical line
+				let minY = Infinity;
+				let maxY = -Infinity;
+				res.chart.forEach(dataset => {
+					dataset.data.forEach(point => {
+						if(point.y != null && !isNaN(point.y)) {
+							minY = Math.min(minY, point.y);
+							maxY = Math.max(maxY, point.y);
+						}
+					});
+				});
+				
+				// Add vertical line dataset for project start date
+				if(minY !== Infinity && maxY !== -Infinity) {
+					const startDate = new Date(res.projectStartDate + 'T00:00:00Z').toISOString();
+					chartDatasets.push({
+						label: '#{__("Début du projet")}',
+						data: [
+							{ t: startDate, y: minY },
+							{ t: startDate, y: maxY }
+						],
+						borderColor: '#FF9800',
+						borderWidth: 2,
+						borderDash: [5, 5],
+						pointRadius: 0,
+						fill: false,
+						steppedLine: false
+					});
+				}
+			}
+			
 			const myChart = new Chart(ctx, {
 				type: "line",
 				data: {
-					datasets: res.chart
+					datasets: chartDatasets
 				},
 				options: {
 					responsive: true,
@@ -258,13 +338,22 @@ script.
 							type: 'time',
 							bounds: 'ticks',
 							time: {
-								tooltipFormat: "DD/MM",
-								displayFormats: { day: "DD/MM" },
+									tooltipFormat: "DD/MM/YYYY",
+									displayFormats: { day: "DD/MM/YYYY" },
 								round: "day",
 								unit: "day"
 							}
 						}],
 						yAxes: [ res.pctTasksDone === undefined || parseInt(res.pctTasksDone) >= 30 ? yAxeLinear : yAxeLogarithmic ]
+					},
+					legend: {
+						display: true,
+						labels: {
+							filter: function(item, chart) {
+								// Hide the vertical line from legend if it's the start date line
+								return !item.text || item.text !== '#{__("Début du projet")}';
+							}
+						}
 					}
 				}
 			});
@@ -289,6 +378,180 @@ script.
 			}
 			else {
 				document.getElementById("stats-chart-keys-container").classList.add("d-none");
+			}
+
+			// Keys list (top 50)
+			if(res.keysList && Array.isArray(res.keysList) && res.keysList.length > 0) {
+				const listContainer = document.getElementById("stats-keys-list");
+				const showMoreBtn = document.getElementById("stats-keys-show-more");
+				if(listContainer) {
+					listContainer.innerHTML = '';
+					const allKeys = res.keysList.slice(0,50);
+					const visibleCount = 3;
+					
+					allKeys.forEach((k, index) => {
+						const li = document.createElement("li");
+						li.classList.add("list-group-item","d-flex","justify-content-between","align-items-center");
+						if(index >= visibleCount) {
+							li.classList.add("d-none", "stats-keys-hidden");
+						}
+						li.appendChild(document.createTextNode(k.k));
+						const badge = document.createElement("span");
+						badge.classList.add("badge","badge-primary","badge-pill");
+						badge.appendChild(document.createTextNode(numberFormat.format(k.amount)));
+						li.appendChild(badge);
+						listContainer.appendChild(li);
+					});
+					
+					// Show "Show more" button if there are more than 3 items
+					if(allKeys.length > visibleCount && showMoreBtn) {
+						showMoreBtn.classList.remove("d-none");
+						const showMoreText = showMoreBtn.textContent;
+						const showLessText = showMoreText.replace("plus", "moins");
+						showMoreBtn.onclick = function() {
+							const hiddenItems = listContainer.querySelectorAll(".stats-keys-hidden");
+							const isHidden = hiddenItems.length > 0 && hiddenItems[0].classList.contains("d-none");
+							
+							hiddenItems.forEach(item => {
+								if(isHidden) {
+									item.classList.remove("d-none");
+								} else {
+									item.classList.add("d-none");
+								}
+							});
+							
+							if(isHidden) {
+								showMoreBtn.textContent = showLessText;
+							} else {
+								showMoreBtn.textContent = showMoreText;
+							}
+						};
+					} else if(showMoreBtn) {
+						showMoreBtn.classList.add("d-none");
+					}
+					
+					listContainer.parentNode.classList.remove("d-none");
+				}
+			}
+
+			// EV charging sockets (project-specific)
+			if(res.sockets) {
+				const sok = res.sockets;
+				const socketContainer = document.getElementById("stats-sockets");
+				if(socketContainer) {
+					socketContainer.innerHTML = '';
+					const rows = [
+						["Type 2", sok.socket_type2],
+						["Type 3", sok.socket_type3],
+						["CCS", sok.socket_ccs],
+						["Chademo", sok.socket_chademo],
+					];
+					rows.forEach(([label, value]) => {
+						const li = document.createElement("li");
+						li.classList.add("list-group-item","d-flex","justify-content-between","align-items-center");
+						li.appendChild(document.createTextNode(label));
+						const badge = document.createElement("span");
+						badge.classList.add("badge","badge-success","badge-pill");
+						badge.appendChild(document.createTextNode(numberFormat.format(value || 0)));
+						li.appendChild(badge);
+						socketContainer.appendChild(li);
+					});
+					socketContainer.parentNode.classList.remove("d-none");
+				}
+			}
+
+			// Quality completion chart
+			if(res.qualityStats && res.qualityStats.chart) {
+				document.getElementById("stats-chart-quality-container").classList.remove("d-none");
+				const ctx3 = document.getElementById("stats-chart-quality").getContext("2d");
+				const myChart3 = new Chart(ctx3, {
+					type: "line",
+					data: {
+						datasets: res.qualityStats.chart
+					},
+					options: {
+						responsive: true,
+						scales: {
+							xAxes: [{
+								type: 'time',
+								bounds: 'ticks',
+								time: {
+									tooltipFormat: "DD/MM",
+									displayFormats: { day: "DD/MM" },
+									round: "day",
+									unit: "day"
+								}
+							}],
+							yAxes: [ yAxeLinear ]
+						},
+						tooltips: {
+							mode: 'index',
+							intersect: false
+						}
+					}
+				});
+
+				// Display current quality stats
+				if(res.qualityStats.current) {
+					const qualityInfo = document.getElementById("stats-quality-info");
+					qualityInfo.innerHTML = '';
+					
+					const current = res.qualityStats.current;
+					const requiredTags = res.qualityStats.required_tags || [];
+					
+					const infoCard = document.createElement("div");
+					infoCard.classList.add("card", "mt-3");
+					
+					const cardBody = document.createElement("div");
+					cardBody.classList.add("card-body");
+					
+					const title = document.createElement("h5");
+					title.classList.add("card-title");
+					title.appendChild(document.createTextNode("#{__("État actuel de la qualité")}"));
+					cardBody.appendChild(title);
+					
+					const statsList = document.createElement("ul");
+					statsList.classList.add("list-unstyled", "mb-0");
+					
+					const avgItem = document.createElement("li");
+					avgItem.classList.add("mb-2");
+					avgItem.innerHTML = `<strong>#{__("Complétion moyenne")}:</strong> ${current.avg_completion.toFixed(1)}%`;
+					statsList.appendChild(avgItem);
+					
+					const totalItem = document.createElement("li");
+					totalItem.classList.add("mb-2");
+					totalItem.innerHTML = `<strong>#{__("Total d'objets")}:</strong> ${numberFormat.format(current.total_objects)}`;
+					statsList.appendChild(totalItem);
+					
+					const completeItem = document.createElement("li");
+					completeItem.classList.add("mb-2");
+					completeItem.innerHTML = `<span class="badge badge-success mr-2">${numberFormat.format(current.fully_complete)}</span> <strong>#{__("Objets 100% complets")}</strong>`;
+					statsList.appendChild(completeItem);
+					
+					const partialItem = document.createElement("li");
+					partialItem.classList.add("mb-2");
+					partialItem.innerHTML = `<span class="badge badge-warning mr-2">${numberFormat.format(current.partially_complete)}</span> <strong>#{__("Objets partiellement complets (50-99%)")}</strong>`;
+					statsList.appendChild(partialItem);
+					
+					const incompleteItem = document.createElement("li");
+					incompleteItem.classList.add("mb-2");
+					incompleteItem.innerHTML = `<span class="badge badge-danger mr-2">${numberFormat.format(current.incomplete)}</span> <strong>#{__("Objets incomplets (<50%)")}</strong>`;
+					statsList.appendChild(incompleteItem);
+					
+					if(requiredTags.length > 0) {
+						const tagsItem = document.createElement("li");
+						tagsItem.classList.add("mt-3", "pt-3", "border-top");
+						tagsItem.innerHTML = `<strong>#{__("Tags requis")}:</strong> <code>${requiredTags.join('</code>, <code>')}</code>`;
+						statsList.appendChild(tagsItem);
+					}
+					
+					cardBody.appendChild(statsList);
+					infoCard.appendChild(cardBody);
+					qualityInfo.appendChild(infoCard);
+				}
+			}
+			else {
+				document.getElementById("stats-chart-quality-container").classList.add("d-none");
 			}
 
 			// Boundary stats map

@@ -1,9 +1,9 @@
 {
 	"id": "2020-03_evcharging",
 	"title": "Recharge de véhicules électriques",
-	"start_date": "2023-01-01",
-	"end_date": "2023-03-31",
-	"summary": "Au moins 80 000 points de charge seraient installés en France alors que seuls 19 000 environ seraient décrits dans notre base de données. L'objectif du projet est de se rapprocher autant que faire se peut de la quantité disponible sur le terrain. #BalanceTaBorne",
+	"start_date": "2019-01-01",
+	"end_date": "2026-06-30",
+	"summary": "Au moins 181 024 points de recharge ouverts au public fin octobre 2025 seraient installés en France alors que seuls 19 000 environ seraient décrits dans notre base de données. L'objectif du projet est de se rapprocher autant que faire se peut de la quantité disponible sur le terrain. #BalanceTaBorne",
 	"links": {
 		"osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Project_of_the_month/bornes_vehicules_electriques"
 	},

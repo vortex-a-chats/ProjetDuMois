@@ -358,8 +358,22 @@ rm -f "${CSV_NOTES(project.id)}" "${CSV_NOTES_CONTRIBS(project.id)}" "${CSV_NOTE
 
 	}
 
+	// Quality completion calculation (if enabled)
+	if (project.quality && project.quality.required_tags && Array.isArray(project.quality.required_tags) && project.quality.required_tags.length > 0) {
+		const requiredTagsArray = project.quality.required_tags.map(tag => `'${tag}'`).join(',');
+		script += `
+echo "   => Calculate quality completion scores"
+${PSQL} -c "SELECT pdm_calculate_quality_completion('${project.id}', ARRAY[${requiredTagsArray}], '\${cur_timestamp}T23:59:59Z')"
+${separator}`;
+	}
+
 script += `
-${PSQL} -c "UPDATE pdm_projects SET lastupdate_date='\${osh_timestamp}' WHERE project='${project.id}'"
+if [ -n "\${osh_timestamp}" ]; then
+	${PSQL} -c "UPDATE pdm_projects SET lastupdate_date='\${osh_timestamp}' WHERE project='${project.id}'"
+	echo "   => Project lastupdate_date set to \${osh_timestamp}"
+else
+	echo "   => WARNING: osh_timestamp is empty, skipping lastupdate_date update"
+fi
 echo "   => Project update sucessful"
 ${separator}
 `;

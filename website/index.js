@@ -93,60 +93,58 @@ app.get("/", (req, res) => {
   }
   // Multiple projects
   else if (nbProjects > 1) {
-    // Fetch completion statistics for all projects
+    // Fetch completion statistics for all projects (even if statistics.count is not enabled)
     const allProjects = [...(p.current || []), ...(p.past || [])];
     const statsPromises = allProjects.map((proj) => {
-      if (!proj.statistics || !proj.statistics.count) {
-        return Promise.resolve({ id: proj.id, currentCount: null, completion: null });
-      }
-      
+      // Calculate number of objects added in the last 30 days for all projects
       return pool
         .query(
           `
-          SELECT amount
-          FROM pdm_feature_counts
-          WHERE project = $1
-          ORDER BY ts DESC
-          LIMIT 1
+          WITH current_count AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+            ORDER BY ts DESC
+            LIMIT 1
+          ),
+          count_30_days_ago AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+              AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
+            ORDER BY ts DESC
+            LIMIT 1
+          )
+          SELECT 
+            COALESCE((SELECT amount FROM current_count), 0) AS current_amount,
+            COALESCE((SELECT amount FROM count_30_days_ago), 0) AS past_amount,
+            COALESCE((SELECT ts FROM current_count), NOW()) AS current_ts,
+            COALESCE((SELECT ts FROM count_30_days_ago), NOW() - INTERVAL '30 days') AS past_ts
         `,
           [proj.id],
         )
         .then((results) => {
-          const currentCount = results.rows.length > 0 ? parseInt(results.rows[0].amount) : 0;
-          
-          // Estimate target based on project type (rough estimates for France)
-          const projectType = proj.id.split("_").pop();
-          const baseEstimates = {
-            surveillance: 500000,    // Caméras de surveillance
-            manholes: 2000000,       // Bouches d'égout
-            bicycle_parking: 500000,  // Stationnements vélos
-            rnb: 10000000,           // Références bâtiments
-            restaurant: 200000,      // Restaurants
-            drinking_water: 100000,  // Points d'eau
-            bench: 500000,           // Bancs
-            contact_email: 500000,   // Lieux avec email
-            streetlamps: 10000000,   // Éclairages
-          };
-          
-          let target = baseEstimates[projectType] || 100000;
-          
-          // If current count exceeds base estimate, adjust target upward
-          // This handles cases where we've already mapped more than expected
-          if (currentCount > target * 0.8) {
-            // If we're at 80% of base estimate, increase target by 50%
-            target = Math.max(target * 1.5, currentCount * 1.2);
-          } else if (currentCount > 0 && currentCount < target * 0.1) {
-            // If we have very few objects, use a more conservative estimate
-            // Target is at least 10x current count, but not less than base estimate
-            target = Math.max(target, currentCount * 10);
+          if (results.rows.length === 0) {
+            return { id: proj.id, last30Days: null };
           }
           
-          const completion = target > 0 ? Math.min(100, Math.round((currentCount / target) * 100)) : 0;
+          const row = results.rows[0];
+          const currentAmount = parseInt(row.current_amount) || 0;
+          const pastAmount = parseInt(row.past_amount) || 0;
+          const last30Days = Math.max(0, currentAmount - pastAmount);
           
-          return { id: proj.id, currentCount, target, completion };
+          // Always return stats, even if 0 (to display for all projects)
+          return { 
+            id: proj.id, 
+            last30Days,
+            currentAmount,
+            pastAmount,
+            currentTs: row.current_ts,
+            pastTs: row.past_ts
+          };
         })
         .catch(() => {
-          return { id: proj.id, currentCount: null, completion: null };
+          return { id: proj.id, last30Days: null };
         });
     });
 
@@ -159,11 +157,11 @@ app.get("/", (req, res) => {
       // Add stats to projects
       const currentProjectsWithStats = (p.current || []).map((proj) => ({
         ...proj,
-        stats: statsMap[proj.id] || { currentCount: null, completion: null },
+        stats: statsMap[proj.id] || { last30Days: null },
       }));
       const otherProjectsWithStats = (p.past || []).map((proj) => ({
         ...proj,
-        stats: statsMap[proj.id] || { currentCount: null, completion: null },
+        stats: statsMap[proj.id] || { last30Days: null },
       }));
 
       res.render(
@@ -435,21 +433,71 @@ app.get("/projects/:id/stats", (req, res) => {
 		`,
           [req.params.id],
         )
-        .then((results) => ({
-          chart: [
-            {
-              label: "Nombre dans OSM",
-              data: results.rows.map((r) => ({ t: r.ts, y: r.amount })),
-              fill: false,
-              borderColor: "#388E3C",
-              lineTension: 0,
-            },
-          ],
-          added:
-            results.rows.length > 0 &&
-            results.rows[results.rows.length - 1].amount -
-              results.rows[0].amount,
-        })),
+        .then((results) => {
+          const rows = results.rows || [];
+          const chartData = rows.map((r) => ({ t: r.ts, y: r.amount }));
+
+          const currentAmount =
+            rows.length > 0 ? parseInt(rows[rows.length - 1].amount) || 0 : 0;
+          const firstAmount =
+            rows.length > 0 ? parseInt(rows[0].amount) || 0 : 0;
+          const added = rows.length > 0 ? currentAmount - firstAmount : null;
+
+          const computeDelta = (days) => {
+            if (rows.length === 0) return null;
+            const last = rows[rows.length - 1];
+            const cutoff = new Date(
+              new Date(last.ts).getTime() - days * 24 * 3600 * 1000,
+            );
+            let prev = rows[0];
+            for (let i = rows.length - 1; i >= 0; i--) {
+              if (new Date(rows[i].ts) <= cutoff) {
+                prev = rows[i];
+                break;
+              }
+            }
+            return Math.max(0, (parseInt(last.amount) || 0) - (parseInt(prev.amount) || 0));
+          };
+
+          const addedWeek = computeDelta(7);
+          const added30d = computeDelta(30);
+          const added180d = computeDelta(180);
+          const added365d = computeDelta(365);
+
+          // Optional target/remaining if provided in project config
+          const totalToIntegrate =
+            typeof p.statistics?.total_expected === "number"
+              ? p.statistics.total_expected
+              : typeof p.statistics?.to_integrate === "number"
+                ? p.statistics.to_integrate
+                : typeof p.statistics?.target === "number"
+                  ? p.statistics.target
+                  : null;
+          const remaining =
+            totalToIntegrate != null
+              ? Math.max(0, totalToIntegrate - currentAmount)
+              : null;
+
+          return {
+            chart: [
+              {
+                label: "Nombre dans OSM",
+                data: chartData,
+                fill: false,
+                borderColor: "#388E3C",
+                lineTension: 0,
+              },
+            ],
+            added,
+            currentAmount,
+            addedWeek,
+            added30d,
+            added180d,
+            added365d,
+            remaining,
+            totalToIntegrate,
+          };
+        }),
     );
 
     allPromises.push(
@@ -526,9 +574,105 @@ app.get("/projects/:id/stats", (req, res) => {
               },
             ],
           },
+          keysList: results.rows,
         };
       }),
   );
+
+  // Fetch quality completion statistics (if enabled)
+  if (p.quality && p.quality.required_tags && Array.isArray(p.quality.required_tags) && p.quality.required_tags.length > 0) {
+    allPromises.push(
+      pool
+        .query(
+          `
+          SELECT 
+            ts,
+            total_objects,
+            avg_completion,
+            fully_complete,
+            partially_complete,
+            incomplete
+          FROM pdm_quality_stats
+          WHERE project = $1
+          ORDER BY ts ASC
+        `,
+          [req.params.id],
+        )
+        .then((results) => {
+          if (results.rows.length === 0) {
+            return { qualityStats: null };
+          }
+          
+          return {
+            qualityStats: {
+              chart: [
+                {
+                  label: "Complétion moyenne (%)",
+                  data: results.rows.map((r) => ({ t: r.ts, y: parseFloat(r.avg_completion) })),
+                  fill: false,
+                  borderColor: "#4CAF50",
+                  lineTension: 0,
+                },
+                {
+                  label: "Objets 100% complets",
+                  data: results.rows.map((r) => ({ t: r.ts, y: parseInt(r.fully_complete) })),
+                  fill: false,
+                  borderColor: "#8BC34A",
+                  lineTension: 0,
+                },
+                {
+                  label: "Objets partiellement complets (50-99%)",
+                  data: results.rows.map((r) => ({ t: r.ts, y: parseInt(r.partially_complete) })),
+                  fill: false,
+                  borderColor: "#FFC107",
+                  lineTension: 0,
+                },
+                {
+                  label: "Objets incomplets (<50%)",
+                  data: results.rows.map((r) => ({ t: r.ts, y: parseInt(r.incomplete) })),
+                  fill: false,
+                  borderColor: "#F44336",
+                  lineTension: 0,
+                },
+              ],
+              current: results.rows.length > 0 ? {
+                avg_completion: parseFloat(results.rows[results.rows.length - 1].avg_completion),
+                fully_complete: parseInt(results.rows[results.rows.length - 1].fully_complete),
+                partially_complete: parseInt(results.rows[results.rows.length - 1].partially_complete),
+                incomplete: parseInt(results.rows[results.rows.length - 1].incomplete),
+                total_objects: parseInt(results.rows[results.rows.length - 1].total_objects),
+              } : null,
+              required_tags: p.quality.required_tags,
+            },
+          };
+        })
+        .catch((err) => {
+          console.error("Error fetching quality stats:", err);
+          return { qualityStats: null };
+        }),
+    );
+  }
+
+  // Specific stats for EV charging sockets
+  if (req.params.id === "2020-03_evcharging") {
+    allPromises.push(
+      pool
+        .query(
+          `
+          SELECT
+            COALESCE(SUM(CASE WHEN tags ? 'socket:type2' THEN NULLIF(tags->>'socket:type2','')::INT ELSE 0 END),0) AS socket_type2,
+            COALESCE(SUM(CASE WHEN tags ? 'socket:type3' THEN NULLIF(tags->>'socket:type3','')::INT ELSE 0 END),0) AS socket_type3,
+            COALESCE(SUM(CASE WHEN tags ? 'socket:ccs' THEN NULLIF(tags->>'socket:ccs','')::INT ELSE 0 END),0) AS socket_ccs,
+            COALESCE(SUM(CASE WHEN tags ? 'socket:chademo' THEN NULLIF(tags->>'socket:chademo','')::INT ELSE 0 END),0) AS socket_chademo
+          FROM pdm_project_evcharging
+        `,
+        )
+        .then((results) => ({
+          sockets: results.rows.length > 0 ? results.rows[0] : null,
+        }))
+        .catch(() => ({ sockets: null })),
+    );
+  }
 
   Promise.allSettled(allPromises).then((results) => {
     let toSend = {};
@@ -545,8 +689,137 @@ app.get("/projects/:id/stats", (req, res) => {
         }
       });
     }
+
+    // If a chart dataset corresponds to "à importer", use it as remaining/total
+    if (Array.isArray(toSend.chart)) {
+      const importerDs = toSend.chart.find(
+        (ds) =>
+          ds &&
+          typeof ds.label === "string" &&
+          ds.label.toLowerCase().includes("import"),
+      );
+      if (importerDs && Array.isArray(importerDs.data) && importerDs.data.length > 0) {
+        const values = importerDs.data.map((p) => Number(p.y) || 0);
+        const remainingImport = values[values.length - 1];
+        const totalImport = values.reduce((m, v) => Math.max(m, v), 0);
+        toSend.remaining = remainingImport;
+        toSend.totalToIntegrate = totalImport;
+      }
+    }
+
+    // Derive averages and ETA once all data merged
+    const contributors = toSend.nbContributors || 0;
+    if (toSend.added != null && contributors > 0) {
+      toSend.avgPerContributor = toSend.added / contributors;
+    }
+    if (toSend.remaining != null && contributors > 0) {
+      toSend.remainingPerContributor = toSend.remaining / contributors;
+    }
+    // Choose a daily rate from available windows
+    // Priority: 6 months (180 days) > 30 days > 7 days > 365 days
+    const dailyRate =
+      (toSend.added180d != null && toSend.added180d > 0
+        ? toSend.added180d / 180
+        : null) ||
+      (toSend.added30d != null && toSend.added30d > 0
+        ? toSend.added30d / 30
+        : null) ||
+      (toSend.addedWeek != null && toSend.addedWeek > 0
+        ? toSend.addedWeek / 7
+        : null) ||
+      (toSend.added365d != null && toSend.added365d > 0
+        ? toSend.added365d / 365
+        : null);
+    if (toSend.remaining != null && dailyRate) {
+      toSend.etaDays = toSend.remaining / dailyRate;
+    }
+
+    // Estimations par commune (base 34 874 communes INSEE)
+    const NB_COMMUNES = 34874;
+    if (toSend.currentAmount != null) {
+      toSend.avgPerCommune = toSend.currentAmount / NB_COMMUNES;
+    }
+    if (contributors > 0) {
+      toSend.contributorsPerCommune = contributors / NB_COMMUNES;
+    }
+
+    // Add project metadata for chart display
+    toSend.projectStartDate = p.start_date;
+    // Extract geographic zone from OSH_PBF_URL (e.g., "france" from "france-internal.osh.pbf")
+    const pbfUrl = CONFIG.OSH_PBF_URL || "";
+    const zoneMatch = pbfUrl.match(/([^\/]+)-internal\.osh\.pbf/);
+    toSend.geographicZone = zoneMatch ? zoneMatch[1].charAt(0).toUpperCase() + zoneMatch[1].slice(1) : "France";
+
     res.send(toSend);
   });
+});
+
+// Quality completion statistics endpoint
+app.get("/projects/:id/quality", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.redirect("/");
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const p = projects[req.params.id];
+  
+  if (!p.quality || !p.quality.required_tags || !Array.isArray(p.quality.required_tags) || p.quality.required_tags.length === 0) {
+    return res.status(404).json({ error: "Quality completion not enabled for this project" });
+  }
+
+  pool
+    .query(
+      `
+      SELECT 
+        ts,
+        total_objects,
+        avg_completion,
+        fully_complete,
+        partially_complete,
+        incomplete
+      FROM pdm_quality_stats
+      WHERE project = $1
+      ORDER BY ts ASC
+    `,
+      [req.params.id],
+    )
+    .then((results) => {
+      if (results.rows.length === 0) {
+        return res.json({
+          project: req.params.id,
+          required_tags: p.quality.required_tags,
+          stats: null,
+          message: "No quality statistics available yet",
+        });
+      }
+
+      res.json({
+        project: req.params.id,
+        required_tags: p.quality.required_tags,
+        stats: results.rows.map((r) => ({
+          ts: r.ts,
+          total_objects: parseInt(r.total_objects),
+          avg_completion: parseFloat(r.avg_completion),
+          fully_complete: parseInt(r.fully_complete),
+          partially_complete: parseInt(r.partially_complete),
+          incomplete: parseInt(r.incomplete),
+        })),
+        current: {
+          avg_completion: parseFloat(results.rows[results.rows.length - 1].avg_completion),
+          fully_complete: parseInt(results.rows[results.rows.length - 1].fully_complete),
+          partially_complete: parseInt(results.rows[results.rows.length - 1].partially_complete),
+          incomplete: parseInt(results.rows[results.rows.length - 1].incomplete),
+          total_objects: parseInt(results.rows[results.rows.length - 1].total_objects),
+        },
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching quality stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
 });
 
 // User contributions

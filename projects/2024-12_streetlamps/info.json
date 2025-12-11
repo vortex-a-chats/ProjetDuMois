@@ -1,12 +1,18 @@
 {
   "id": "2024-12_streetlamps",
   "title": "Éclairages de rue",
-  "start_date": "2024-12-01",
+  "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "L'éclairage public est essentiel pour la sécurité et le confort des usagers. Cartographions ensemble tous les éclairages de rue dans OpenStreetMap ! #ÉclairagePublic #ProjetDuMois",
   "image": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Projet_du_mois/Éclairages_de_rue"
+  },
+  "quality": {
+    "required_tags": [
+      "lamp_type",
+      "height"
+    ]
   },
   "database": {
     "osmium_tag_filter": "n/amenity=street_lamp",

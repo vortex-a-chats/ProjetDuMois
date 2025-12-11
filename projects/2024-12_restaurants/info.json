@@ -1,39 +1,40 @@
 {
-  "id": "2024-12_manholes",
-  "title": "Bouches d'égout",
+  "id": "2024-12_restaurants",
+  "title": "Restaurants",
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
-  "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "summary": "Les restaurants sont essentiels pour la vie locale. Cartographions ensemble tous les restaurants dans OpenStreetMap ! #Restaurants #ProjetDuMois",
+  "image": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&auto=format&fit=crop",
   "links": {
-    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Drestaurant"
   },
   "quality": {
     "required_tags": [
-      "manhole",
-      "material"
+   
+      "cuisine",
+      "name"
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "n/amenity=restaurant",
     "imposm": {
-      "types": ["point"],
+      "types": ["point", "polygon"],
       "mapping": {
-        "man_made": ["manhole"]
+        "amenity": ["restaurant"]
       }
     }
   },
   "datasources": [
     {
       "source": "notes",
-      "name": "Bouche d'égout à intégrer",
+      "name": "Restaurant à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
-      "terms": ["bouche", "égout", "manhole", "regard"]
+      "terms": ["restaurant", "resto", "manger", "repas"]
     },
     {
       "source": "osm",
-      "name": "Bouche d'égout dans OSM",
-      "description": "Cette bouche d'égout existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+      "name": "Restaurant dans OSM",
+      "description": "Ce restaurant existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
     },
     {
       "source": "background",
@@ -56,42 +57,49 @@
   ],
   "statistics": {
     "count": true,
-    "feature_name": "bouches d'égout",
+    "feature_name": "restaurants",
     "points": {
-      "add": 2,
+      "add": 3,
       "edit": 1,
       "note": 1
     }
   },
   "editors": {
     "all": {
-      "comment": "Ajout d'une bouche d'égout",
-      "hashtags": "projetdumois,projetdumoisfr,manhole"
+      "comment": "Ajout d'un restaurant",
+      "hashtags": "projetdumois,projetdumoisfr,restaurant"
     },
     "pdm": {
       "fields": [
         {
           "type": "hidden",
           "tags": {
-            "man_made": "manhole",
+            "amenity": "restaurant",
             "source": "*"
           }
         },
         {
-          "type": "select",
-          "name": "Type",
-          "tag": "manhole",
-          "optional": true,
-          "values": [
-            {"v": "drain", "l": "Égout pluvial"},
-            {"v": "sewer", "l": "Égout sanitaire"},
-            {"v": "combined", "l": "Égout mixte"}
-          ]
+          "type": "text",
+          "name": "Nom",
+          "tag": "name"
         },
         {
           "type": "text",
-          "name": "Matériau",
-          "tag": "material",
+          "name": "Cuisine",
+          "tag": "cuisine",
+          "optional": true,
+          "description": "Type de cuisine (française, italienne, etc.)"
+        },
+        {
+          "type": "text",
+          "name": "Téléphone",
+          "tag": "contact:phone",
+          "optional": true
+        },
+        {
+          "type": "text",
+          "name": "Site web",
+          "tag": "contact:website",
           "optional": true
         },
         {
@@ -102,8 +110,8 @@
         }
       ],
       "title": {
-        "add": "Ajouter une bouche d'égout manquante",
-        "edit": "Compléter cette bouche d'égout"
+        "add": "Ajouter un restaurant manquant",
+        "edit": "Compléter ce restaurant"
       }
     },
     "iD": {

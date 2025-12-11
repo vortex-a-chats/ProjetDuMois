@@ -1,11 +1,17 @@
 {
   "id": "2023-09_mairies",
-  "title": "Mairies",
-  "start_date": "2024-04-01",
+  "title": "Écoles",
+  "start_date": "2018-01-01",
   "end_date": "2024-05-01",
   "summary": "La complétude des écoles a besoin de vous. Cartographions ensemble ces lieux dans OpenStreetMap ! #Écoles #ProjetDuMois",
   "links": {
     "osmwiki": " https://wiki.openstreetmap.org/wiki/FR:Projet_du_mois/Écoles"
+  },
+  "quality": {
+    "required_tags": [
+      "name",
+      "operator"
+    ]
   },
   "database": {
     "osmium_tag_filter": "nw/amenity=school",

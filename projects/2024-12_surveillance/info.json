@@ -1,39 +1,39 @@
 {
-  "id": "2024-12_manholes",
-  "title": "Bouches d'égout",
+  "id": "2024-12_surveillance",
+  "title": "Caméras de surveillance",
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
-  "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "summary": "Qui gardera les gardiens? Cartographions ensemble toutes les caméras de surveillance dans OpenStreetMap ! #Surveillance #ProjetDuMois #sUnderS",
+  "image": "https://wallpapercrafter.com/desktop1/686396-2001-A-Space-Odyssey-computer-HAL-9000-science.jpg",
   "links": {
-    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
+    "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dsurveillance"
   },
   "quality": {
     "required_tags": [
-      "manhole",
-      "material"
+      "direction",
+      "operator"
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "n/man_made=surveillance",
     "imposm": {
       "types": ["point"],
       "mapping": {
-        "man_made": ["manhole"]
+        "man_made": ["surveillance"]
       }
     }
   },
   "datasources": [
     {
       "source": "notes",
-      "name": "Bouche d'égout à intégrer",
+      "name": "Caméra à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
-      "terms": ["bouche", "égout", "manhole", "regard"]
+      "terms": ["caméra", "surveillance", "vidéosurveillance", "cctv"]
     },
     {
       "source": "osm",
-      "name": "Bouche d'égout dans OSM",
-      "description": "Cette bouche d'égout existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
+      "name": "Caméra dans OSM",
+      "description": "Cette caméra existe déjà dans OSM. Vous pouvez compléter ou modifier ses informations si nécessaire."
     },
     {
       "source": "background",
@@ -56,7 +56,7 @@
   ],
   "statistics": {
     "count": true,
-    "feature_name": "bouches d'égout",
+    "feature_name": "caméras de surveillance",
     "points": {
       "add": 2,
       "edit": 1,
@@ -65,33 +65,29 @@
   },
   "editors": {
     "all": {
-      "comment": "Ajout d'une bouche d'égout",
-      "hashtags": "projetdumois,projetdumoisfr,manhole"
+      "comment": "Ajout d'une caméra de surveillance",
+      "hashtags": "projetdumois,projetdumoisfr,surveillance"
     },
     "pdm": {
       "fields": [
         {
           "type": "hidden",
           "tags": {
-            "man_made": "manhole",
+            "man_made": "surveillance",
             "source": "*"
           }
         },
         {
           "type": "select",
-          "name": "Type",
-          "tag": "manhole",
+          "name": "Orientation",
+          "tag": "direction",
           "optional": true,
-          "values": [
-            {"v": "drain", "l": "Égout pluvial"},
-            {"v": "sewer", "l": "Égout sanitaire"},
-            {"v": "combined", "l": "Égout mixte"}
-          ]
+          "description": "Direction de la caméra (en degrés, 0 = Nord)"
         },
         {
           "type": "text",
-          "name": "Matériau",
-          "tag": "material",
+          "name": "Opérateur",
+          "tag": "operator",
           "optional": true
         },
         {
@@ -102,8 +98,8 @@
         }
       ],
       "title": {
-        "add": "Ajouter une bouche d'égout manquante",
-        "edit": "Compléter cette bouche d'égout"
+        "add": "Ajouter une caméra de surveillance manquante",
+        "edit": "Compléter cette caméra de surveillance"
       }
     },
     "iD": {

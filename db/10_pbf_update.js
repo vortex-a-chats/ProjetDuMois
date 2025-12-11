@@ -20,6 +20,8 @@ const OSC_UPDATES = CONFIG.WORK_DIR + '/changes.osc.gz';
 const COOKIES = CONFIG.WORK_DIR + '/cookie.txt';
 const PSQL = `psql -d ${process.env.DB_URL}`;
 const OUTPUT_SCRIPT = CONFIG.WORK_DIR + '/11_pbf_update_tmp.sh';
+const HTML_ERROR_FILE_AUTH = CONFIG.WORK_DIR + '/auth_error.html';
+const HTML_ERROR_FILE_PBF = CONFIG.WORK_DIR + '/pbf_download_error.html';
 
 // Script text
 const separator = `echo "-------------------------------------------------------------------"
@@ -67,6 +69,44 @@ else
 
 	if [ ! -f "${COOKIES}" ] || [ ! -s "${COOKIES}" ]; then
 		echo "ERROR: Cookie file is missing or empty. Authentication may have failed."
+		if [ -f "${COOKIES}" ]; then
+			echo "Saving cookie file content to ${COOKIES}.html for inspection..."
+			cp "${COOKIES}" "${COOKIES}.html"
+			echo "Attempting to open cookie file in Firefox..."
+			if command -v firefox >/dev/null 2>&1; then
+				firefox "file://${COOKIES}.html" 2>/dev/null &
+				echo "Cookie file opened in Firefox"
+			elif [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
+				xdg-open "file://${COOKIES}.html" 2>/dev/null &
+				echo "Cookie file opened in default browser"
+			else
+				echo "Could not open browser automatically. Please open manually: file://${COOKIES}.html"
+			fi
+		fi
+		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
+		rm -f "${COOKIES}"
+		exit 1
+	fi
+	
+	# Check if cookie file contains HTML (authentication failed)
+	if head -1 "${COOKIES}" | grep -qi "<!DOCTYPE html\|<html"; then
+		echo "ERROR: Cookie file contains HTML instead of a cookie. Authentication failed."
+		echo "Saving HTML response to ${HTML_ERROR_FILE_AUTH} for inspection..."
+		cp "${COOKIES}" "${HTML_ERROR_FILE_AUTH}"
+		echo ""
+		# Save the file path to a location accessible from host
+		if [ -d "/data/files/pdm" ]; then
+			cp "${HTML_ERROR_FILE_AUTH}" "/data/files/pdm/auth_error.html" 2>/dev/null || true
+			echo "File also saved to /data/files/pdm/auth_error.html (accessible from host)"
+		fi
+		echo ""
+		FILENAME=$(basename "${HTML_ERROR_FILE_AUTH}")
+		echo "Run this command on the host to open the error page in Firefox:"
+		echo "  docker-compose exec pdm cat ${HTML_ERROR_FILE_AUTH} > \${FILENAME} && firefox \${FILENAME}"
+		echo ""
+		echo "Or use the helper script:"
+		echo "  ./open_error_in_firefox.sh pdm ${HTML_ERROR_FILE_AUTH}"
+		echo ""
 		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
 		rm -f "${COOKIES}"
 		exit 1
@@ -90,6 +130,22 @@ else
 			echo "ERROR: Downloaded file appears to be an HTML page instead of a PBF file."
 			echo "This usually means authentication failed. The file contains:"
 			head -5 "${OSH_UPDATED}"
+			echo ""
+			echo "Saving HTML response to ${HTML_ERROR_FILE_PBF} for inspection..."
+			cp "${OSH_UPDATED}" "${HTML_ERROR_FILE_PBF}"
+			echo ""
+			# Save the file path to a location accessible from host
+			if [ -d "/data/files/pdm" ]; then
+				cp "${HTML_ERROR_FILE_PBF}" "/data/files/pdm/pbf_download_error.html" 2>/dev/null || true
+				echo "File also saved to /data/files/pdm/pbf_download_error.html (accessible from host)"
+			fi
+			echo ""
+			FILENAME=$(basename "${HTML_ERROR_FILE_PBF}")
+			echo "Run this command on the host to open the error page in Firefox:"
+			echo "  docker-compose exec pdm cat ${HTML_ERROR_FILE_PBF} > \${FILENAME} && firefox \${FILENAME}"
+			echo ""
+			echo "Or use the helper script:"
+			echo "  ./open_error_in_firefox.sh pdm ${HTML_ERROR_FILE_PBF}"
 			echo ""
 			echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
 			rm -f "${COOKIES}" "${OSH_UPDATED}"
@@ -117,6 +173,14 @@ if [[ "$mode" != "fast" ]]; then
 	echo "== Apply changes to OSH file..."
 	osmium apply-changes --progress -H "$prev_osh" "${OSC_UPDATES}" -O -o "${OSH_UPDATED_NEW}"
 	echo "== Extract polygon data..."
+		# Ensure polygon file exists; download from Geofabrik if missing
+		if [ ! -f "${OSH_POLY}" ] || [ ! -s "${OSH_POLY}" ]; then
+			echo "   => Polygon file missing, downloading from Geofabrik..."
+			if ! wget -O "${OSH_POLY}" "https://download.geofabrik.de/europe/france.poly" 2>&1; then
+				echo "ERROR: Unable to download polygon file."
+				exit 1
+			fi
+		fi
 	osmium extract -p "${OSH_POLY}" --with-history -s complete_ways "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
 	echo "== Remove temp files"
 	rm -f "${OSC_UPDATES}"

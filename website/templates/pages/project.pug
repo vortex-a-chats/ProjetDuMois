@@ -122,6 +122,166 @@ block content
 			else
 				p
 					a(href=CONFIG.OSM_URL target="_blank")= __("Retrouvez l'ensemble des données directement sur le site d'OpenStreetMap.")
+			
+			//- API section for zone-based statistics
+			if !isNext && statistics && statistics.count
+				div.mt-5
+					h3.blog-post-title
+						i.fa.fa-code.mr-2
+						| #{__("API de mesures par zone")}
+					p= __("Vous pouvez récupérer les statistiques de ce projet pour une zone administrative donnée (ville, département, etc.) via l'URL suivante (port 3000) :")
+					
+					div.card.mt-3
+						div.card-header.d-flex.justify-content-between.align-items-center
+							code GET /projects/#{id}/stats
+							a.btn.btn-sm.btn-outline-primary(href=`http://localhost:3000/projects/${id}/stats#zone` target="_blank")
+								i.fa.fa-link.mr-1
+								| #{__("Ouvrir la requête")}
+						div.card-body
+							p.card-text= __("Récupère les statistiques du projet; vous pouvez filtrer ou agréger côté client par zone.")
+							div.mt-3
+								h5= __("Exemple de requête :")
+								pre.bg-light.p-3(style="border-radius: 4px;")
+									code
+										| GET http://localhost:3000/projects/#{id}/stats
+							
+							div.mt-3
+								h5= __("Réponse JSON (extrait) :")
+								pre.bg-light.p-3(style="border-radius: 4px;")
+									code
+										| {
+										|   "chart": [...],
+										|   "count": 1234,
+										|   "mapStyle": { "...": "..." },
+										|   "qualityStats": { "...": "..." }
+										| }
+							
+							div.alert.alert-info.mt-3
+								i.fa.fa-info-circle.mr-2
+								| #{__("Note : Pour des statistiques précises par zone, récupérez les données et filtrez-les selon les limites administratives souhaitées. Les données sont mises à jour quotidiennement.")}
+
+			//- JOSM section
+			if !isNext && database && database.osmium_tag_filter
+				div.mt-5
+					h3.blog-post-title
+						i.fa.fa-edit.mr-2
+						| #{__("Modifier dans JOSM")}
+					p= __("Chargez les objets de ce projet pour un département dans JOSM pour les modifier directement.")
+					
+					div.card.mt-3
+						div.card-body
+							div.form-group
+								label(for="josm-department-select")= __("Département")
+								input.form-control(
+									type="text"
+									id="josm-department-select"
+									list="departments-list"
+									placeholder=__("Ex: 75, 13, 69...")
+									autocomplete="off"
+								)
+								datalist#departments-list
+									each dept in [{code: "01", name: "Ain"}, {code: "02", name: "Aisne"}, {code: "03", name: "Allier"}, {code: "04", name: "Alpes-de-Haute-Provence"}, {code: "05", name: "Hautes-Alpes"}, {code: "06", name: "Alpes-Maritimes"}, {code: "07", name: "Ardèche"}, {code: "08", name: "Ardennes"}, {code: "09", name: "Ariège"}, {code: "10", name: "Aube"}, {code: "11", name: "Aude"}, {code: "12", name: "Aveyron"}, {code: "13", name: "Bouches-du-Rhône"}, {code: "14", name: "Calvados"}, {code: "15", name: "Cantal"}, {code: "16", name: "Charente"}, {code: "17", name: "Charente-Maritime"}, {code: "18", name: "Cher"}, {code: "19", name: "Corrèze"}, {code: "21", name: "Côte-d'Or"}, {code: "22", name: "Côtes-d'Armor"}, {code: "23", name: "Creuse"}, {code: "24", name: "Dordogne"}, {code: "25", name: "Doubs"}, {code: "26", name: "Drôme"}, {code: "27", name: "Eure"}, {code: "28", name: "Eure-et-Loir"}, {code: "29", name: "Finistère"}, {code: "2A", name: "Corse-du-Sud"}, {code: "2B", name: "Haute-Corse"}, {code: "30", name: "Gard"}, {code: "31", name: "Haute-Garonne"}, {code: "32", name: "Gers"}, {code: "33", name: "Gironde"}, {code: "34", name: "Hérault"}, {code: "35", name: "Ille-et-Vilaine"}, {code: "36", name: "Indre"}, {code: "37", name: "Indre-et-Touraine"}, {code: "38", name: "Isère"}, {code: "39", name: "Jura"}, {code: "40", name: "Landes"}, {code: "41", name: "Loir-et-Cher"}, {code: "42", name: "Loire"}, {code: "43", name: "Haute-Loire"}, {code: "44", name: "Loire-Atlantique"}, {code: "45", name: "Loiret"}, {code: "46", name: "Lot"}, {code: "47", name: "Lot-et-Garonne"}, {code: "48", name: "Lozère"}, {code: "49", name: "Maine-et-Loire"}, {code: "50", name: "Manche"}, {code: "51", name: "Marne"}, {code: "52", name: "Haute-Marne"}, {code: "53", name: "Mayenne"}, {code: "54", name: "Meurthe-et-Moselle"}, {code: "55", name: "Meuse"}, {code: "56", name: "Morbihan"}, {code: "57", name: "Moselle"}, {code: "58", name: "Nièvre"}, {code: "59", name: "Nord"}, {code: "60", name: "Oise"}, {code: "61", name: "Orne"}, {code: "62", name: "Pas-de-Calais"}, {code: "63", name: "Puy-de-Dôme"}, {code: "64", name: "Pyrénées-Atlantiques"}, {code: "65", name: "Hautes-Pyrénées"}, {code: "66", name: "Pyrénées-Orientales"}, {code: "67", name: "Bas-Rhin"}, {code: "68", name: "Haut-Rhin"}, {code: "69", name: "Rhône"}, {code: "70", name: "Haute-Saône"}, {code: "71", name: "Saône-et-Loire"}, {code: "72", name: "Sarthe"}, {code: "73", name: "Savoie"}, {code: "74", name: "Haute-Savoie"}, {code: "75", name: "Paris"}, {code: "76", name: "Seine-Maritime"}, {code: "77", name: "Seine-et-Marne"}, {code: "78", name: "Yvelines"}, {code: "79", name: "Deux-Sèvres"}, {code: "80", name: "Somme"}, {code: "81", name: "Tarn"}, {code: "82", name: "Tarn-et-Garonne"}, {code: "83", name: "Var"}, {code: "84", name: "Vaucluse"}, {code: "85", name: "Vendée"}, {code: "86", name: "Vienne"}, {code: "87", name: "Haute-Vienne"}, {code: "88", name: "Vosges"}, {code: "89", name: "Yonne"}, {code: "90", name: "Territoire de Belfort"}, {code: "91", name: "Essonne"}, {code: "92", name: "Hauts-de-Seine"}, {code: "93", name: "Seine-Saint-Denis"}, {code: "94", name: "Val-de-Marne"}, {code: "95", name: "Val-d'Oise"}]
+										option(value=dept.code)= dept.code + " - " + dept.name
+							button.btn.btn-primary.btn-lg(
+								type="button"
+								id="josm-load-btn"
+								disabled
+							)
+								i.fa.fa-external-link-alt.mr-2
+								| #{__("Charger dans JOSM")}
+							div#josm-status.mt-3
+					
+					script.
+						(function() {
+							const deptInput = document.getElementById("josm-department-select");
+							const loadBtn = document.getElementById("josm-load-btn");
+							const statusDiv = document.getElementById("josm-status");
+							const projectFilter = !{JSON.stringify(database.osmium_tag_filter || "")};
+							const josmRemoteUrl = !{JSON.stringify(CONFIG.JOSM_REMOTE_URL || "http://localhost:8111")};
+							
+							// Extract filter parts from osmium_tag_filter (e.g., "n/amenity=street_lamp" -> {type: "node", tags: {amenity: "street_lamp"}})
+							function parseFilter(filterStr) {
+								if (!filterStr) return null;
+								const parts = filterStr.split("/");
+								const type = parts[0] || "nwr"; // n, w, r, or nwr
+								const tagParts = (parts[1] || "").split("=");
+								if (tagParts.length === 2) {
+									return {
+										type: type === "n" ? "node" : type === "w" ? "way" : type === "r" ? "relation" : "nwr",
+										key: tagParts[0],
+										value: tagParts[1]
+									};
+								}
+								return { type: "nwr", key: null, value: null };
+							}
+							
+							// Build Overpass query
+							function buildOverpassQuery(departmentCode) {
+								const filter = parseFilter(projectFilter);
+								if (!filter) return null;
+								
+								const type = filter.type === "node" ? "node" : filter.type === "way" ? "way" : filter.type === "relation" ? "relation" : "(node;way;relation)";
+								const tagFilter = filter.key && filter.value ? "[" + JSON.stringify(filter.key) + "=" + JSON.stringify(filter.value) + "]" : "";
+								
+								var query = "[out:xml][timeout:25];\n";
+								query += "(\n";
+								query += "  relation[\"admin_level\"=\"6\"][\"ref\"=\"" + departmentCode + "\"];\n";
+								query += ");\n";
+								query += "map_to_area;\n";
+								query += "(\n";
+								query += "  " + type + tagFilter + "(area);\n";
+								query += ");\n";
+								query += "(._;>;);\n";
+								query += "out meta;";
+								return query;
+							}
+							
+							// Enable/disable button based on input
+							deptInput.addEventListener("input", function() {
+								const code = deptInput.value.trim();
+								loadBtn.disabled = !code || code.length < 2 || code.length > 3;
+							});
+							
+							// Load in JOSM
+							loadBtn.addEventListener("click", async function() {
+								const deptCode = deptInput.value.trim();
+								if (!deptCode) return;
+								
+								loadBtn.disabled = true;
+								statusDiv.innerHTML = '<div class="alert alert-info"><i class="fa fa-spinner fa-spin mr-2"></i>#{__("Génération de la requête Overpass...")}</div>';
+								
+								const query = buildOverpassQuery(deptCode);
+								if (!query) {
+									statusDiv.innerHTML = '<div class="alert alert-danger">#{__("Erreur : Impossible de générer la requête Overpass.")}</div>';
+									loadBtn.disabled = false;
+									return;
+								}
+								
+								try {
+									// Encode query for Overpass API
+									const encodedQuery = encodeURIComponent(query);
+									const overpassUrl = "https://overpass-api.de/api/interpreter?data=" + encodedQuery;
+									
+									// Send Overpass URL directly to JOSM via remote control
+									// JOSM will execute the Overpass query itself
+									statusDiv.innerHTML = '<div class="alert alert-info"><i class="fa fa-spinner fa-spin mr-2"></i>#{__("Envoi de la requête Overpass à JOSM...")}</div>';
+									
+									const josmUrl = josmRemoteUrl + "/import?url=" + encodeURIComponent(overpassUrl);
+									const josmResponse = await fetch(josmUrl);
+									
+									if (!josmResponse.ok) {
+										throw new Error("JOSM remote control error: " + josmResponse.status);
+									}
+									
+									statusDiv.innerHTML = '<div class="alert alert-success"><i class="fa fa-check-circle mr-2"></i>#{__("Requête Overpass envoyée à JOSM avec succès ! JOSM va télécharger les données.")}</div>';
+								} catch (error) {
+									console.error("Error loading in JOSM:", error);
+									statusDiv.innerHTML = '<div class="alert alert-danger"><i class="fa fa-exclamation-triangle mr-2"></i>#{__("Erreur :")} ' + error.message + '. #{__("Vérifiez que JOSM est lancé et que la télécommande est activée.")}</div>';
+								} finally {
+									loadBtn.disabled = false;
+								}
+							});
+						})();
 
 	//- Other projects
 	if projectsToDisplay && projectsToDisplay.length > 0
