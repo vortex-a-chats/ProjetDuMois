@@ -267,8 +267,9 @@ block content
 					const medal = medals[index];
 					
 					const div = document.createElement("div");
-					div.classList.add("col-md-4", "text-center");
+					div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
 					div.style.order = pos;
+					div.style.justifyContent = "flex-end";
 					
 					const objetsText = "#{__('objets')}";
 					div.innerHTML = 
@@ -277,9 +278,8 @@ block content
 							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">' + proj.added.toLocaleString('fr-FR') + '</div>' +
 							'<div style="color: white; font-size: 0.9rem;">' + objetsText + '</div>' +
 						'</div>' +
-						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit;">' +
-							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; margin-top: 10px;">' +
-							'<div style="font-weight: bold; margin-top: 5px;">' + proj.title + '</div>' +
+						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + '">' +
+							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
 						'</a>';
 					
 					contribPodium.appendChild(div);
@@ -307,8 +307,9 @@ block content
 					const medal = medals[index];
 					
 					const div = document.createElement("div");
-					div.classList.add("col-md-4", "text-center");
+					div.classList.add("col-md-4", "text-center", "d-flex", "flex-column");
 					div.style.order = pos;
+					div.style.justifyContent = "flex-end";
 					
 					const ameliorationText = "#{__('amélioration')}";
 					div.innerHTML = 
@@ -317,10 +318,8 @@ block content
 							'<div style="font-weight: bold; font-size: 1.5rem; color: white; margin-bottom: 5px;">+' + proj.increase.toFixed(1) + '%</div>' +
 							'<div style="color: white; font-size: 0.9rem;">' + ameliorationText + '</div>' +
 						'</div>' +
-						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit;">' +
-							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; margin-top: 10px;">' +
-							'<div style="font-weight: bold; margin-top: 5px;">' + proj.title + '</div>' +
-							'<div style="font-size: 0.85rem; color: #666; margin-top: 3px;">' + proj.past.toFixed(1) + '% → ' + proj.current.toFixed(1) + '%</div>' +
+						'<a href="/projects/' + proj.id + '" style="text-decoration: none; color: inherit; display: inline-block; margin-top: 10px;" title="' + proj.title + ' (' + proj.past.toFixed(1) + '% → ' + proj.current.toFixed(1) + '%)">' +
+							'<img src="' + proj.icon + '" alt="' + proj.title + '" style="max-width: 80px; height: auto; cursor: pointer;">' +
 						'</a>';
 					
 					qualityPodium.appendChild(div);
