@@ -757,7 +757,11 @@ app.get("/projects/:id/stats", (req, res) => {
         )
         .then((results) => ({
           count: results.rows.length > 0 && results.rows[0].amount,
-        })),
+        }))
+        .catch((err) => {
+          console.error(`Error fetching count for project ${req.params.id}:`, err.message);
+          return { count: null };
+        }),
     );
 
     if (p.datasources.find((ds) => ds.source === "stats")) {
@@ -778,7 +782,11 @@ app.get("/projects/:id/stats", (req, res) => {
               ? getMapStatsStyle(p, maxLevel)
               : null;
           })
-          .then((mapStyle) => ({ mapStyle })),
+          .then((mapStyle) => ({ mapStyle }))
+          .catch((err) => {
+            console.error(`Error fetching map stats for project ${req.params.id}:`, err.message);
+            return { mapStyle: null };
+          }),
       );
     }
   }
@@ -792,7 +800,14 @@ app.get("/projects/:id/stats", (req, res) => {
       .then((results) => ({
         nbContributors: results.rows.length,
         leaderboard: osmUserAuthentified ? results.rows : null,
-      })),
+      }))
+      .catch((err) => {
+        console.error(`Error fetching leaderboard for project ${req.params.id}:`, err.message);
+        return {
+          nbContributors: 0,
+          leaderboard: null,
+        };
+      }),
   );
 
   // Fetch tags statistics
@@ -809,6 +824,12 @@ app.get("/projects/:id/stats", (req, res) => {
 		ORDER BY COUNT(*) desc;`,
       )
       .then((results) => {
+        if (results.rows.length === 0) {
+          return {
+            chartKeys: null,
+            keysList: [],
+          };
+        }
         const d = results.rows.filter(
           (r) => r.amount >= results.rows[0].amount / 10,
         );
@@ -825,6 +846,13 @@ app.get("/projects/:id/stats", (req, res) => {
             ],
           },
           keysList: results.rows,
+        };
+      })
+      .catch((err) => {
+        console.error(`Error fetching tags statistics for project ${req.params.id}:`, err.message);
+        return {
+          chartKeys: null,
+          keysList: [],
         };
       }),
   );

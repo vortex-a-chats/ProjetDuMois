@@ -317,7 +317,7 @@ fi
 echo "   => Found $ELEMENT_COUNT relations in OSH file"
 
 # Utiliser Node.js pour traiter les relations et leurs membres
-node - <<'NODEJS'
+node - "$TMP_RELATIONS" <<'NODEJS'
 const fs = require('fs');
 const { Pool } = require('pg');
 const DB_URL = process.env.DB_URL || '${DB_URL}';
@@ -326,6 +326,10 @@ const pool = new Pool({ connectionString: DB_URL });
 async function processHikingRoutes() {
 	try {
 		const filePath = process.argv[2];
+		if (!filePath || filePath === 'undefined') {
+			console.error('   ❌ Relations file path not provided');
+			process.exit(1);
+		}
 		if (!fs.existsSync(filePath)) {
 			console.error('   ❌ Relations file not found:', filePath);
 			process.exit(1);
@@ -341,15 +345,28 @@ async function processHikingRoutes() {
 		try {
 			data = JSON.parse(fileContent);
 		} catch (parseError) {
-			console.error('   ❌ Failed to parse JSON from Overpass response:', parseError.message);
+			console.error('   ❌ Failed to parse JSON from osmium export:', parseError.message);
 			console.error('   First 200 chars of response:', fileContent.substring(0, 200));
 			process.exit(1);
 		}
 		
-		const relations = (data.elements || []).filter(el => el.type === 'relation');
+		// osmium export génère un tableau d'objets OSM directement, pas un objet avec "elements"
+		// Le format est soit un tableau, soit un objet avec "elements" (selon le format)
+		let relations;
+		if (Array.isArray(data)) {
+			// Format OSM JSON standard : tableau d'objets
+			relations = data.filter(el => el.type === 'relation');
+		} else if (data.elements && Array.isArray(data.elements)) {
+			// Format Overpass : objet avec propriété "elements"
+			relations = data.elements.filter(el => el.type === 'relation');
+		} else {
+			console.error('   ❌ Unexpected JSON format from osmium export');
+			console.error('   Data type:', typeof data);
+			process.exit(1);
+		}
 		
 		if (relations.length === 0) {
-			console.log('   ⚠️  No relations found in response');
+			console.log('   ⚠️  No relations found in file');
 			await pool.end();
 			process.exit(0);
 		}
@@ -378,7 +395,7 @@ async function processHikingRoutes() {
 				\`, [osmId, name, tags]);
 				
 				// Insérer le décompte de membres pour aujourd'hui
-				// Note: changeset_id, username, userid ne sont pas disponibles directement depuis Overpass
+				// Note: changeset_id, username, userid ne sont pas disponibles directement depuis osmium export
 				// On les laisse NULL pour l'instant, ils seront mis à jour lors des mises à jour via l'API OSM
 				await pool.query(\`
 					INSERT INTO pdm_relation_hiking_members (relation_id, ts, member_count, changeset_id, username, userid)
@@ -400,6 +417,7 @@ async function processHikingRoutes() {
 		}
 		
 		await pool.end();
+		process.exit(0);
 	} catch (error) {
 		console.error('   ❌ Error processing hiking routes:', error.message);
 		console.error(error.stack);
@@ -409,10 +427,9 @@ async function processHikingRoutes() {
 
 processHikingRoutes();
 NODEJS
-	"$TMP_RELATIONS"
-	
-	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
-fi
+
+# Nettoyer les fichiers temporaires
+rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
 `;
 
 script += `

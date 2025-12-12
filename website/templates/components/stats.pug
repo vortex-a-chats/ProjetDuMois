@@ -135,8 +135,18 @@ script.
 	function showStatistics() {
 		const numberFormat = new Intl.NumberFormat();
 
+		if (!projectId) {
+			console.error("Project ID not found");
+			return;
+		}
+
 		fetch("/projects/"+projectId+"/stats"+(window.osm_user ? "?osm_user="+window.osm_user.name : ""))
-		.then(res => res.json())
+		.then(res => {
+			if (!res.ok) {
+				throw new Error(`HTTP error! status: ${res.status}`);
+			}
+			return res.json();
+		})
 		.then(res => {
 			const blocks = document.getElementById("stats-blocks");
 			blocks.innerHTML = '';
@@ -525,6 +535,7 @@ script.
 				});
 			} else {
 				document.getElementById("stats-variation-chart-container").classList.add("d-none");
+			}
 			}
 
 			// Add OSM logo to chart after it's created
@@ -915,7 +926,6 @@ script.
 		});
 
 		// Load zone podiums
-		const projectId = window.location.pathname.match(/\/projects\/([^\/]+)/)?.[1];
 		if(projectId) {
 			fetch('/projects/' + projectId + '/zones-podiums')
 				.then(res => res.json())

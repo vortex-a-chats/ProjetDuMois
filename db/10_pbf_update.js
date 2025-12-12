@@ -44,42 +44,50 @@ if [ ! -d "${CONFIG.WORK_DIR}" ]; then
 fi
 
 if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
-	echo "== Reuse existing history file"
-	prev_osh="${OSH_UPDATED}"
-	if [ -f ${CONFIG.WORK_DIR}/osh_timestamp ]; then
-		prev_timestamp=$(cat ${CONFIG.WORK_DIR}/osh_timestamp)
-		if [ -n "$prev_timestamp" ]; then
-			echo "Timestamp: $prev_timestamp"
-			# Check if timestamp is too old (more than 30 days), if so, re-download full file
-			timestamp_age=$(($(date +%s) - $(date -d "$prev_timestamp" +%s 2>/dev/null || echo 0)))
-			max_age=$((30 * 24 * 3600)) # 30 days in seconds
-			if [ $timestamp_age -gt $max_age ] 2>/dev/null; then
-				echo "WARNING: Timestamp is more than 30 days old ($(($timestamp_age / 86400)) days)"
-				echo "         This would require downloading too many incremental changes."
-				echo "         Re-downloading full OSH file instead..."
-				rm -f "${OSH_UPDATED}"
-				prev_osh=""
-			else
-				echo "   => Using existing OSH file: ${OSH_UPDATED}"
-			fi
-		else
-			echo "WARNING: Timestamp file exists but is empty"
-			echo "         Re-downloading full OSH file to ensure consistency..."
-			rm -f "${OSH_UPDATED}"
-			prev_osh=""
-		fi
-	else
-		echo "WARNING: No timestamp found"
-		echo "         Re-downloading full OSH file to ensure consistency..."
+	# Vérifier que le fichier est valide (pas HTML, pas vide)
+	file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
+	if echo "$file_type" | grep -qi "html\|text"; then
+		echo "== Existing OSH file appears to be invalid (HTML/text instead of PBF)"
+		echo "   => Will re-download..."
 		rm -f "${OSH_UPDATED}"
 		prev_osh=""
+	else
+		echo "== Reuse existing history file"
+		prev_osh="${OSH_UPDATED}"
+		if [ -f ${CONFIG.WORK_DIR}/osh_timestamp ]; then
+			prev_timestamp=$(cat ${CONFIG.WORK_DIR}/osh_timestamp)
+			if [ -n "$prev_timestamp" ]; then
+				echo "Timestamp: $prev_timestamp"
+				# Check if timestamp is too old (more than 30 days), if so, re-download full file
+				timestamp_age=$(($(date +%s) - $(date -d "$prev_timestamp" +%s 2>/dev/null || echo 0)))
+				max_age=$((30 * 24 * 3600)) # 30 days in seconds
+				if [ $timestamp_age -gt $max_age ] 2>/dev/null; then
+					echo "WARNING: Timestamp is more than 30 days old ($(($timestamp_age / 86400)) days)"
+					echo "         This would require downloading too many incremental changes."
+					echo "         Re-downloading full OSH file instead..."
+					rm -f "${OSH_UPDATED}"
+					prev_osh=""
+				else
+					echo "   => Using existing OSH file: ${OSH_UPDATED}"
+				fi
+			else
+				echo "WARNING: Timestamp file exists but is empty"
+				echo "   => Using existing OSH file (will create new timestamp later)"
+				echo "   => File: ${OSH_UPDATED}"
+			fi
+		else
+			echo "INFO: No timestamp found, but OSH file exists and appears valid"
+			echo "   => Using existing OSH file (will create new timestamp later)"
+			echo "   => File: ${OSH_UPDATED}"
+		fi
 	fi
 else
 	echo "== OSH file not found or is empty"
 	prev_osh=""
 fi
 
-if [ ! -f "${OSH_UPDATED}" ] || [ ! -s "${OSH_UPDATED}" ] || [ -z "$prev_osh" ]; then
+# Ne télécharger que si le fichier n'existe pas vraiment ou a été supprimé
+if [ -z "$prev_osh" ] || [ ! -f "${OSH_UPDATED}" ] || [ ! -s "${OSH_UPDATED}" ]; then
 	echo "== Get cookies for authorized download of OSH PBF file"
 	
 	# Tentative d'authentification avec retries en cas d'erreur 503
@@ -177,14 +185,15 @@ if [ ! -f "${OSH_UPDATED}" ] || [ ! -s "${OSH_UPDATED}" ] || [ -z "$prev_osh" ];
 	fi
 
 	echo "== Download OSH PBF file"
-	# wget -N ne retélécharge pas si le fichier existe déjà et est à jour
-	# Vérifier d'abord si le fichier existe et est valide
+	# Vérifier si le fichier existe déjà et est valide avant de télécharger
 	if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
 		file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
 		if ! echo "$file_type" | grep -qi "html\|text"; then
-			echo "   => OSH file already exists and appears valid. Using wget -N to check for updates..."
+			echo "   => OSH file already exists and appears valid: ${OSH_UPDATED}"
+			echo "   => Using wget -N to check for updates (will skip if file is up-to-date)..."
 		fi
 	fi
+	# wget -N ne retélécharge pas si le fichier existe déjà et est à jour selon les en-têtes HTTP
 	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" -O "${OSH_UPDATED}" "${CONFIG.OSH_PBF_URL}" 2>&1; then
 		echo "ERROR: Failed to download OSH PBF file."
 		echo "This may be due to:"
