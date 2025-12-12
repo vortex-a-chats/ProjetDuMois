@@ -6,6 +6,23 @@ const fetch = require('node-fetch');
 const booleanContains = require('@turf/boolean-contains').default;
 const {Pool, Client} = require('pg')
 
+// Get project filter from command line arguments
+const targetProjectId = process.argv[2] || null;
+let projectsToProcess = Object.values(projects);
+
+if (targetProjectId) {
+	// Filter to only the specified project
+	if (!projects[targetProjectId]) {
+		console.error(`ERROR: Project "${targetProjectId}" not found.`);
+		console.error(`Available projects: ${Object.keys(projects).join(', ')}`);
+		process.exit(1);
+	}
+	projectsToProcess = [projects[targetProjectId]];
+	console.log(`Processing only project: ${targetProjectId}`);
+} else {
+	console.log(`Processing all ${projectsToProcess.length} projects`);
+}
+
 /*
  * Generates 31_projects_update_tmp.sh script
  * in order to update projects statistics and data daily
@@ -133,7 +150,7 @@ let projectPointsQry = "INSERT INTO pdm_projects_points (project, contrib, point
 let projectPointsLength = 0;
 let projectLength = 0;
 
-Object.values(projects).forEach(project => {
+projectsToProcess.forEach(project => {
 	projectsQry += `('${project.id}', '${project.start_date}', '${project.end_date}'),`;
 	projectLength++;
 
@@ -194,18 +211,31 @@ fi
 ${separator}
 `;
 
-// Vérifier que le fichier OSH existe avant de traiter les projets
+// Vérifier que le fichier OSH existe et a une taille valide avant de traiter les projets
 script += `
-# Vérifier que le fichier OSH existe
+# Vérifier que le fichier OSH existe et a une taille valide (au moins 8 Go)
 if [ ! -f "${OSH_UPDATED}" ]; then
 	echo "ERROR: OSH file not found: ${OSH_UPDATED}"
 	echo "Please run 'update_pbf' first to download and update the OSH file."
 	exit 1
 fi
+
+# Vérifier la taille du fichier (au moins 8 Go = 8 * 1024 * 1024 * 1024 = 8589934592 bytes)
+OSH_SIZE=$(stat -f%z "${OSH_UPDATED}" 2>/dev/null || stat -c%s "${OSH_UPDATED}" 2>/dev/null || echo "0")
+MIN_SIZE=8589934592
+if [ "$OSH_SIZE" -lt "$MIN_SIZE" ] 2>/dev/null; then
+	echo "ERROR: OSH file is too small (\$OSH_SIZE bytes, expected at least \$MIN_SIZE bytes = 8 GB)"
+	echo "The OSH file appears to be corrupted or incomplete."
+	echo "Please run 'update_pbf' again to download a complete OSH file."
+	exit 1
+fi
+
+OSH_SIZE_GB=$(echo "scale=2; \$OSH_SIZE / 1024 / 1024 / 1024" | bc)
+echo "✓ OSH file size check passed: \$OSH_SIZE_GB GB"
 ${separator}
 `;
 
-Object.values(projects).forEach(project => {
+projectsToProcess.forEach(project => {
 	let oshInput = OSH_UPDATED;
 	const oshProject = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}`);
 	const oshFiltered = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}.filtered`);
@@ -235,37 +265,167 @@ if [[ -z \$cnt_timestamp || \$prj_timestamp>=\$cnt_timestamp ]]; then
 fi
 
 
-if [ -f "${oshFiltered}" ]; then
-	echo "Remove existing filtered file"
-	rm -f "${oshFiltered}"
-fi`;
+echo "   => Extract changes from OSH file and import to database"
+# Use the global OSH file directly to extract changes for this project
+# This avoids creating project-specific OSH files
+rm -f "${CSV_CHANGES}"
+# Extract changes from the global OSH file using the project's tag filter
+# First, filter by tags, then by time range, then convert to OSC format
+TMP_FILTERED="${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered.osh.pbf"
+TMP_OSC="${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_changes.osc"
+rm -f "${TMP_FILTERED}" "${TMP_OSC}"
 
-	tagFilterParts.forEach(tagFilter => {
+# Apply tag filters sequentially
+TMP_INPUT="${OSH_UPDATED}"
+`;
+	tagFilterParts.forEach((tagFilter, index) => {
+		const tmpOutput = index === tagFilterParts.length - 1 
+			? `"${TMP_FILTERED}"` 
+			: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
+		const nextInput = index === tagFilterParts.length - 1 
+			? `"${TMP_FILTERED}"` 
+			: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
+		
 		script += `
-echo "   => Extract features from OSH PBF (${tagFilter})"
-
-osmium tags-filter "${oshInput}" -R ${tagFilter} -O -o "${oshProject}"
-mv "${oshProject}" "${oshFiltered}"`;
-		oshInput = oshFiltered;
+if osmium tags-filter "${TMP_INPUT}" ${tagFilter} -O -o ${tmpOutput} 2>/dev/null; then
+	if [ -f ${tmpOutput} ] && [ -s ${tmpOutput} ]; then
+		echo "   => Tag filter ${index + 1}/${tagFilterParts.length} applied successfully"
+		${index < tagFilterParts.length - 1 ? `TMP_INPUT=${nextInput}` : ''}
+	else
+		echo "   ⚠️  Filtered file is empty after tag filter ${index + 1}"
+		rm -f ${tmpOutput}
+		touch "${CSV_CHANGES}"
+		TMP_FILTERED=""
+	fi
+else
+	echo "   ⚠️  Failed to apply tag filter ${index + 1}"
+	rm -f ${tmpOutput}
+	touch "${CSV_CHANGES}"
+	TMP_FILTERED=""
+fi
+`;
 	});
 
 	script += `
-echo "   => Produce usefull file"
-osmium getid --id-osm-file "${oshFiltered}" --with-history "${OSH_UPDATED}" -O -o "${oshUsefull}"
+# Extract changes in the time range and convert to OSC
+if [ -n "${TMP_FILTERED}" ] && [ -f "${TMP_FILTERED}" ] && [ -s "${TMP_FILTERED}" ]; then
+	if osmium time-filter "${TMP_FILTERED}" \${cnt_timestamp}T00:00:00Z \${cur_timestamp}T00:00:00Z -f osh.pbf -o - 2>/dev/null | osmium cat - -F osh.pbf -O -o "${TMP_OSC}" 2>/dev/null; then
+		if [ -f "${TMP_OSC}" ] && [ -s "${TMP_OSC}" ]; then
+			echo "   => Changes extracted successfully"
+		else
+			echo "   ⚠️  OSC file is empty"
+			touch "${CSV_CHANGES}"
+		fi
+	else
+		echo "   ⚠️  Failed to extract changes by time range"
+		touch "${CSV_CHANGES}"
+	fi
+	# Clean up temporary filtered file
+	rm -f "${TMP_FILTERED}"
+	${tagFilterParts.map((_, index) => {
+		if (index < tagFilterParts.length - 1) {
+			return `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
+		}
+		return null;
+	}).filter(f => f).map(f => `rm -f ${f}`).join('\n\t')}
+else
+	echo "   ⚠️  No filtered file available, skipping change extraction"
+	touch "${CSV_CHANGES}"
+fi
 
-echo "   => Transform changes into CSV file"
-rm -f "${CSV_CHANGES}"
-osmium time-filter "${oshUsefull}" \${cnt_timestamp}T00:00:00Z \${cur_timestamp}T00:00:00Z -f osh.pbf -o - | osmium cat - -F osh.pbf -O -o "${OSC_USEFULL}"
-xsltproc "${OSC2CSV}" "${OSC_USEFULL}" | sed "s/^/${project.id},/" > "${CSV_CHANGES}"
-rm -f "${OSC_USEFULL}"
+# Convert OSC to CSV if OSC file exists
+if [ -f "${TMP_OSC}" ] && [ -s "${TMP_OSC}" ]; then
+	# Extract osmid from type/id format (e.g., "node/123" -> "123") and add project column
+	# Use a more robust CSV parser that handles quoted fields
+	# Check if changeset_id column exists in pdm_changes to determine CSV format
+	HAS_CHANGESET_ID=$(${PSQL} -qtAc "SELECT 1 FROM information_schema.columns WHERE table_name='pdm_changes' AND column_name='changeset_id'" 2>/dev/null | grep -q 1 && echo "1" || echo "0")
+	# Use Python to properly parse CSV with quoted fields containing commas
+	if [ "$HAS_CHANGESET_ID" = "1" ]; then
+		xsltproc "${OSC2CSV}" "${OSC_USEFULL}" | python3 -c "
+import sys
+import csv
+import json
+
+project = '${project.id}'
+reader = csv.reader(sys.stdin)
+for row in reader:
+	if len(row) < 8:
+		continue
+	action = row[0]
+	typeid = row[1]
+	version = row[2]
+	timestamp = row[3]
+	username = row[4].strip('\"')
+	uid = row[5]
+	changeset_id = row[6] if row[6] and row[6] != 'null' else ''
+	# Tags is everything from field 7 onwards, join with commas
+	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
+	# Remove outer quotes and fix escaped quotes
+	tags = tags.strip('\"').replace('\"\"', '\"')
+	
+	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
+	if '/' in typeid:
+		osmid = typeid.split('/')[1]
+	else:
+		osmid = typeid
+	
+	# Output: project,action,osmid,version,timestamp,username,userid,changeset_id,tags
+	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{changeset_id},{tags}')
+" > "${CSV_CHANGES}"
+	else
+		xsltproc "${OSC2CSV}" "${OSC_USEFULL}" | python3 -c "
+import sys
+import csv
+
+project = '${project.id}'
+reader = csv.reader(sys.stdin)
+for row in reader:
+	if len(row) < 8:
+		continue
+	action = row[0]
+	typeid = row[1]
+	version = row[2]
+	timestamp = row[3]
+	username = row[4].strip('\"')
+	uid = row[5]
+	# Tags is everything from field 7 onwards, join with commas
+	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
+	# Remove outer quotes and fix escaped quotes
+	tags = tags.strip('\"').replace('\"\"', '\"')
+	
+	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
+	if '/' in typeid:
+		osmid = typeid.split('/')[1]
+	else:
+		osmid = typeid
+	
+	# Output: project,action,osmid,version,timestamp,username,userid,tags
+	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{tags}')
+" > "${CSV_CHANGES}"
+	fi
+	rm -f "${TMP_OSC}"
+else
+	echo "   ⚠️  OSC file is empty or missing, CSV will be empty"
+	touch "${CSV_CHANGES}"
+fi
 
 echo "   => Init changes table in database between \${cnt_timestamp} and \${cur_timestamp}"
 ${PSQL} -c "DELETE FROM pdm_changes WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T00:00:00Z'"
 
-${PSQL} -c "CREATE TABLE IF NOT EXISTS pdm_changes_tmp (LIKE pdm_changes)"
-${PSQL} -c "TRUNCATE TABLE pdm_changes_tmp"
+# Drop and recreate pdm_changes_tmp to ensure it has the same structure as pdm_changes
+${PSQL} -c "DROP TABLE IF EXISTS pdm_changes_tmp"
+${PSQL} -c "CREATE TABLE pdm_changes_tmp (LIKE pdm_changes)"
 
-${PSQL} -c "\\COPY pdm_changes_tmp (project, action, osmid, version, ts, username, userid, tags) FROM '${CSV_CHANGES}' CSV"
+# Use the same HAS_CHANGESET_ID variable from above to determine COPY columns
+if [ -f "${CSV_CHANGES}" ] && [ -s "${CSV_CHANGES}" ]; then
+	if [ "$HAS_CHANGESET_ID" = "1" ]; then
+		${PSQL} -c "\\COPY pdm_changes_tmp (project, action, osmid, version, ts, username, userid, changeset_id, tags) FROM '${CSV_CHANGES}' CSV"
+	else
+		${PSQL} -c "\\COPY pdm_changes_tmp (project, action, osmid, version, ts, username, userid, tags) FROM '${CSV_CHANGES}' CSV"
+	fi
+else
+	echo "   ⚠️  CSV file is empty or missing, skipping import"
+fi
 
 ${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${project.id.split("_").pop()}" -f "${__dirname}/33_changes_populate.sql"
 if ${HAS_BOUNDARY}; then
@@ -309,19 +469,50 @@ for day in "\${days[@]}"; do
 	fi
 	
 	echo "Processing \${day}"
-	osmium time-filter "${oshUsefull}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osm.pbf
-	`;
+	# Check if usefull file exists and has content before processing
+	if [ ! -f "${oshUsefull}" ] || [ ! -s "${oshUsefull}" ]; then
+		echo "   ⚠️  Usefull file is empty or missing, skipping count for \${day}"
+		nbday="0"
+	else
+		if osmium time-filter "${oshUsefull}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osm.pbf 2>/dev/null; then
+			if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
+				`;
 	let tagFilterLastPart = tagFilterParts.pop();
 	tagFilterParts.forEach(tagFilter => {
 		script += `
-		osmium tags-filter "${osmStats}" -R ${tagFilter} --no-progress -O -o "${osmStatsFiltered}"
-		mv "${osmStatsFiltered}" "${osmStats}"
-		`;
+				if osmium tags-filter "${osmStats}" ${tagFilter} --no-progress -O -o "${osmStatsFiltered}" 2>/dev/null; then
+					if [ -f "${osmStatsFiltered}" ] && [ -s "${osmStatsFiltered}" ]; then
+						mv "${osmStatsFiltered}" "${osmStats}"
+					else
+						echo "   ⚠️  Filtered file is empty, skipping"
+						rm -f "${osmStats}" "${osmStatsFiltered}"
+						nbday="0"
+					fi
+				else
+					echo "   ⚠️  Failed to filter, skipping"
+					rm -f "${osmStats}" "${osmStatsFiltered}"
+					nbday="0"
+				fi
+				`;
 	});
 
-	script += `nbday=$(osmium tags-count "${osmStats}" --no-progress -F osm.pbf ${tagFilterLastPart.split("/").pop()} | cut -d$'\\t' -f 1 | paste -sd+ | bc)
-	if [ "$nbday" == "" ]; then
-		nbday="0"
+	script += `
+				if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
+					nbday=$(osmium tags-count "${osmStats}" --no-progress -F osm.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+					if [ "$nbday" == "" ]; then
+						nbday="0"
+					fi
+				else
+					nbday="0"
+				fi
+			else
+				echo "   ⚠️  OSM stats file is empty or missing, skipping count for \${day}"
+				nbday="0"
+			fi
+		else
+			echo "   ⚠️  Failed to filter by time, skipping count for \${day}"
+			nbday="0"
+		fi
 	fi
 
 	${PSQL} -c "INSERT INTO pdm_feature_counts (project,ts,amount) VALUES ('${project.id}', '\${day}T23:59:59Z', \${nbday}) ON CONFLICT (project,ts) DO UPDATE SET amount=EXCLUDED.amount"
@@ -336,7 +527,6 @@ rm -f "${osmStats}"
 	}
 
 	script += `
-	rm -f "${oshUsefull}"
 	${separator}
 
 	echo "== Generate user contributions between \${cnt_timestamp} and \${cur_timestamp}"
@@ -372,23 +562,42 @@ rm -f "${CSV_NOTES(project.id)}" "${CSV_NOTES_CONTRIBS(project.id)}" "${CSV_NOTE
 
 	}
 
-	// Quality completion calculation (if enabled)
+	// Quality completion calculation (if enabled) - calculé depuis la base de données pour toutes les dates
 	if (project.quality && project.quality.required_tags && Array.isArray(project.quality.required_tags) && project.quality.required_tags.length > 0) {
 		const requiredTagsArray = project.quality.required_tags.map(tag => `'${tag}'`).join(',');
 		script += `
-echo "   => Calculate quality completion scores"
-${PSQL} -c "SELECT pdm_calculate_quality_completion('${project.id}', ARRAY[${requiredTagsArray}], '\${cur_timestamp}T23:59:59Z')"
+echo "   => Calculate quality completion scores for all dates"
+${PSQL} -c "SELECT pdm_calculate_quality_completion_all_dates('${project.id}', ARRAY[${requiredTagsArray}])"
 ${separator}`;
 	}
 
 script += `
-if [ -n "\${osh_timestamp}" ]; then
-	${PSQL} -c "UPDATE pdm_projects SET lastupdate_date='\${osh_timestamp}' WHERE project='${project.id}'"
-	echo "   => Project lastupdate_date set to \${osh_timestamp}"
-else
-	echo "   => WARNING: osh_timestamp is empty, skipping lastupdate_date update"
-fi
+# Update project lastupdate_date with current timestamp
+# Use cur_timestamp (end of processing period) to mark when this update was completed
+# This ensures that if the script is run again immediately, it will use a different timestamp
+update_timestamp="\${cur_timestamp}T23:59:59Z"
+${PSQL} -c "UPDATE pdm_projects SET lastupdate_date='$update_timestamp' WHERE project='${project.id}'"
+echo "   => Project lastupdate_date set to $update_timestamp"
+
 echo "   => Project update sucessful"
+${separator}
+
+echo "== Résumé des statistiques pour ${project.id}"
+# Compter le nombre de mesures réalisées dans cette mise à jour
+nb_measures=$(${PSQL} -tAc "SELECT COUNT(*) FROM pdm_feature_counts WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T23:59:59Z'" | sed 's/[^0-9]*//g')
+if [ -z "$nb_measures" ]; then
+	nb_measures="0"
+fi
+echo "   => Nombre de mesures réalisées: $nb_measures"
+
+# Récupérer le nombre d'objets à la date la plus récente
+latest_count=$(${PSQL} -tAc "SELECT amount FROM pdm_feature_counts WHERE project='${project.id}' ORDER BY ts DESC LIMIT 1" | sed 's/[^0-9]*//g')
+latest_date=$(${PSQL} -tAc "SELECT to_char(ts, 'YYYY-MM-DD') FROM pdm_feature_counts WHERE project='${project.id}' ORDER BY ts DESC LIMIT 1")
+if [ -n "$latest_count" ] && [ -n "$latest_date" ]; then
+	echo "   => Nombre d'objets à la date la plus récente ($latest_date): $latest_count"
+else
+	echo "   => Aucune statistique disponible"
+fi
 ${separator}
 `;
 });

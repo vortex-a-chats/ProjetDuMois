@@ -10,12 +10,13 @@ AVAILABLE_COMMANDS=(
     "run: Start the web server"
     "start: Start the web server"
     "update_pbf: Update OSH PBF file"
-    "update_features: Update OSM features in database"
-    "update_projects: Update project statistics and history"
+    "update_features: Update OSM features in database (optionally specify project ID)"
+    "update_projects: Update project statistics and history (optionally specify project ID)"
     "update_quality: Calculate quality completion only"
     "update_global_stats: Update global statistics (notes France, hiking routes)"
     "update_daily: Run daily updates (PBF, features, projects, global stats)"
     "uninstall: Uninstall projects from database"
+    "count_objects: Count objects in OSH file for a project (optionally specify project ID)"
     "list: List all available commands"
     "help: Show this help message"
 )
@@ -129,6 +130,19 @@ list_commands() {
     done
     echo ""
     echo "Usage: docker-compose exec pdm ./docker-entrypoint.sh <command> [args...]"
+    echo ""
+    echo "Examples:"
+    echo "  # Update all projects:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_projects"
+    echo ""
+    echo "  # Update a specific project:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_projects 2024-12_streetlamps"
+    echo ""
+    echo "  # Update features for a specific project:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_features 2024-12_streetlamps"
+    echo ""
+    echo "  # Count objects in OSH file for a project:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh count_objects 2025-01_ask_angela"
 }
 
 if [ -z $DB_URL ]; then
@@ -222,7 +236,7 @@ case $command in
     fi
     ;;
 "update_features")
-    npm run features:update $otherArgs
+    npm run features:update -- $otherArgs
     if [ -f "/tmp/pdm/21_features_update_tmp.sh" ]; then
         /tmp/pdm/21_features_update_tmp.sh $otherArgs
     elif [ -f "./db/21_features_update_tmp.sh" ]; then
@@ -233,7 +247,7 @@ case $command in
     fi
     ;;
 "update_projects")
-    npm run projects:update $otherArgs
+    npm run projects:update -- $otherArgs
     if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
         /tmp/pdm/31_projects_update_tmp.sh $otherArgs
     elif [ -f "./db/31_projects_update_tmp.sh" ]; then
@@ -394,6 +408,125 @@ NODE
 
     psql -d $DB_URL -f ./db/91_project_uninstall_tmp.sql
     psql -d $DB_URL -f ./db/90_uninstall.sql
+    ;;
+"count_objects")
+    PROJECT_ID=${otherArgs:-"2025-01_ask_angela"}
+    echo "Counting objects for project: $PROJECT_ID"
+    echo ""
+    
+    # Get project info
+    PROJECT_INFO=$(node -e "
+    const projects = require('./website/projects');
+    const project = projects['$PROJECT_ID'];
+    if (!project) {
+        console.error('ERROR: Project $PROJECT_ID not found');
+        process.exit(1);
+    }
+    const tagFilter = project.database && project.database.osmium_tag_filter ? project.database.osmium_tag_filter : '';
+    console.log(JSON.stringify({ tagFilter: tagFilter }));
+    " 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        echo "$PROJECT_INFO"
+        exit 1
+    fi
+    
+    TAG_FILTER=$(echo "$PROJECT_INFO" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.tagFilter);")
+    
+    if [ -z "$TAG_FILTER" ]; then
+        echo "ERROR: No osmium_tag_filter found for project $PROJECT_ID"
+        exit 1
+    fi
+    
+    echo "Tag filter: $TAG_FILTER"
+    echo ""
+    
+    # Get OSH file path from config
+    OSH_FILE=$(node -e "
+    const CONFIG = require('./config.json');
+    const oshUrl = CONFIG.OSH_PBF_URL;
+    const oshFilename = oshUrl.split('/').pop().replace('.osh.pbf', '.latest.osh.pbf');
+    console.log(CONFIG.WORK_DIR + '/' + oshFilename);
+    ")
+    
+    if [ ! -f "$OSH_FILE" ]; then
+        echo "ERROR: OSH file not found: $OSH_FILE"
+        echo "Please run 'update_pbf' first to download the OSH file."
+        exit 1
+    fi
+    
+    echo "OSH file: $OSH_FILE"
+    echo ""
+    
+    # Create temporary files
+    TMP_DIR=$(node -e "const CONFIG = require('./config.json'); console.log(CONFIG.WORK_DIR);")
+    TMP_FILTERED="${TMP_DIR}/count_filtered_${PROJECT_ID}.osh.pbf"
+    TMP_OSM="${TMP_DIR}/count_osm_${PROJECT_ID}.osm.pbf"
+    
+    # Clean up temporary files on exit
+    trap "rm -f '$TMP_FILTERED' '$TMP_OSM'" EXIT
+    
+    echo "Step 1: Filtering OSH file with tag filter..."
+    if ! osmium tags-filter "$OSH_FILE" -R $TAG_FILTER -O -o "$TMP_FILTERED" 2>&1; then
+        echo "ERROR: Failed to filter OSH file"
+        exit 1
+    fi
+    
+    if [ ! -f "$TMP_FILTERED" ] || [ ! -s "$TMP_FILTERED" ]; then
+        echo "WARNING: Filtered file is empty or missing"
+        echo "Count from OSH: 0"
+    else
+        echo "Step 2: Converting to OSM (latest version)..."
+        future_date=$(date -u -d "+10 years" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "2099-12-31T23:59:59Z")
+        if ! osmium time-filter "$TMP_FILTERED" "$future_date" -O -o "$TMP_OSM" -f osm.pbf 2>&1; then
+            echo "ERROR: Failed to convert OSH to OSM"
+            exit 1
+        fi
+        
+        if [ ! -f "$TMP_OSM" ] || [ ! -s "$TMP_OSM" ]; then
+            echo "WARNING: OSM file is empty or missing"
+            echo "Count from OSH: 0"
+        else
+            echo "Step 3: Counting objects..."
+            # Extract the tag filter part (e.g., "n/harassment_prevention=ask_angela" -> "harassment_prevention=ask_angela")
+            TAG_PART=$(echo "$TAG_FILTER" | sed -E 's/^[nwr]\///')
+            COUNT=$(osmium tags-count "$TMP_OSM" --no-progress -F osm.pbf "$TAG_PART" 2>/dev/null | cut -d$'\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+            
+            if [ -z "$COUNT" ] || [ "$COUNT" = "" ]; then
+                COUNT="0"
+            fi
+            
+            echo ""
+            echo "=========================================="
+            echo "Count from OSH file (latest version): $COUNT"
+            echo "=========================================="
+        fi
+    fi
+    
+    echo ""
+    echo "Step 4: Getting count from database..."
+    DB_COUNT=$(psql -d "$DB_URL" -qtAc "SELECT COUNT(*) FROM pdm_features WHERE project = '$PROJECT_ID' AND end_ts IS NULL" 2>/dev/null || echo "ERROR")
+    
+    if [ "$DB_COUNT" = "ERROR" ]; then
+        echo "WARNING: Could not query database"
+    else
+        echo ""
+        echo "=========================================="
+        echo "Count from database (current features): $DB_COUNT"
+        echo "=========================================="
+    fi
+    
+    echo ""
+    if [ -n "$COUNT" ] && [ -n "$DB_COUNT" ] && [ "$COUNT" != "0" ] && [ "$DB_COUNT" != "ERROR" ]; then
+        DIFF=$((COUNT - DB_COUNT))
+        if [ $DIFF -gt 0 ]; then
+            echo "⚠️  Database has $DIFF fewer objects than OSH file"
+        elif [ $DIFF -lt 0 ]; then
+            echo "⚠️  Database has $((-$DIFF)) more objects than OSH file"
+        else
+            echo "✓ Counts match!"
+        fi
+    fi
     ;;
 *)
     echo "Command $command unknown"

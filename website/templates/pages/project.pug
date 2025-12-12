@@ -3,6 +3,8 @@ extends ../layout.pug
 block head
 	//- Map specific libraries
 	script(src="/lib/maplibre-gl/maplibre-gl.js")
+	//- Chart.js zoom plugin for deletions histogram (version 0.7.7 compatible with Chart.js v2)
+	script(src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@0.7.7/dist/chartjs-plugin-zoom.min.js")
 
 block navbar
 	if !isActive && !isNext
@@ -66,6 +68,172 @@ block content
 					i.fa.fa-chart-bar.mr-2
 					| #{__("Voir les statistiques")}
 
+	//- Statistics
+	a#statistics
+	div.container-fluid.py-5.mb-3.pdm-section-highlight
+		div.blog-post.container
+			div.d-flex.justify-content-between.align-items-center.mb-3
+				h2.blog-post-title.mb-0
+					i.fa.fa-chart-bar.mr-2(style="font-size: 2.1rem")
+					| #{__("Statistiques")}
+				button.btn.btn-sm.btn-outline-info(type="button" data-toggle="modal" data-target="#stats-explanation-modal" style="padding: 0.25rem 0.5rem;")
+					i.fa.fa-info-circle.mr-1
+					= __("Comment sont calculées ces statistiques ?")
+
+			if isNext
+				p= __("Les statistiques d'avancement seront affichées lors du lancement du projet du mois le %s.", new Date(start_date).toLocaleString(getLocale(), { day: "numeric", month: "long" }))
+			else
+				include ../components/stats.pug
+				
+				//- Explication des décomptes
+				if statistics && statistics.count
+					div.mt-4
+						div.card
+							div.card-header.d-flex.justify-content-between.align-items-center(style="cursor: pointer;" id="counts-explanation-toggle")
+								h5.mb-0
+									i.fa.fa-info-circle.mr-2
+									= __("Comment sont calculés les décomptes ?")
+								i.fa.fa-chevron-down.ml-auto#counts-explanation-icon
+							div.collapse#counts-explanation
+								div.card-body
+									p= __("Les décomptes d'objets sont calculés depuis l'historique des changements stocké dans la base de données. Le fichier CSV mentionné dans les logs sert uniquement à importer temporairement les changements OSM (créations, modifications, suppressions) depuis le fichier d'historique général vers la table pdm_changes.")
+									
+									div.mt-3
+										h6= __("Principe de calcul :")
+										p= __("Pour chaque date, on compte les objets qui existent à cette date en reconstituant leur état depuis l'historique :")
+										ul
+											li= __("Un objet existe à une date donnée s'il a été créé avant ou à cette date")
+											li= __("Et s'il n'a pas été supprimé avant ou à cette date")
+											li= __("Les objets actuels (non modifiés depuis la dernière mise à jour) sont aussi pris en compte")
+									
+									div.mt-4
+										h6= __("Exemple de requête SQL pour un jour donné :")
+										p.small.text-muted= __("Cette requête reconstitue l'état des objets à une date donnée depuis l'historique des changements.")
+										pre.bg-light.p-3(style="border-radius: 4px; overflow-x: auto;")
+											code
+												| -- Compter les objets du projet pour une date donnée
+												| -- Remplacez '2025-01-15' par la date souhaitée
+												| WITH object_states AS (
+												|   -- Dernier état connu de chaque objet avant ou à la date
+												|   SELECT DISTINCT ON (osmid)
+												|     osmid,
+												|     action,
+												|     ts,
+												|     version
+												|   FROM pdm_changes
+												|   WHERE project = '#{id}'
+												|     AND ts <= '2025-01-15T23:59:59Z'
+												|   ORDER BY osmid, ts DESC, version DESC
+												| ),
+												| current_objects AS (
+												|   -- Objets actuels qui n'ont pas été supprimés dans l'historique
+												|   SELECT DISTINCT osm_id::TEXT AS osmid
+												|   FROM pdm_project_#{id.split("_").pop()}
+												|   WHERE osm_id::TEXT NOT IN (
+												|     SELECT osmid FROM object_states WHERE action = 'delete'
+												|   )
+												| ),
+												| existing_objects AS (
+												|   -- Union des objets actuels et des objets de l'historique non supprimés
+												|   SELECT osmid FROM current_objects
+												|   UNION
+												|   SELECT osmid FROM object_states WHERE action != 'delete'
+												| )
+												| SELECT COUNT(*) AS count
+												| FROM existing_objects;
+									
+									if database && database.osmium_tag_filter
+										div.mt-4
+											h6= __("Filtre OSM utilisé pour ce projet :")
+											code.bg-light.p-2.d-block(style="border-radius: 4px;")= database.osmium_tag_filter
+									
+									div.mt-4
+										h6= __("Exemple de requête SQL pour un jour et une zone donnés :")
+										p.small.text-muted= __("Cette requête filtre les objets existants à une date donnée pour une zone administrative spécifique.")
+										pre.bg-light.p-3(style="border-radius: 4px; overflow-x: auto;")
+											code
+												| -- Compter les objets du projet pour une date et une zone administrative
+												| -- Remplacez '2025-01-15' par la date et 12345 par l'ID de la zone (boundary)
+												| WITH object_states AS (
+												|   -- Dernier état connu de chaque objet avant ou à la date
+												|   SELECT DISTINCT ON (osmid)
+												|     osmid,
+												|     action,
+												|     ts,
+												|     version
+												|   FROM pdm_changes
+												|   WHERE project = '#{id}'
+												|     AND ts <= '2025-01-15T23:59:59Z'
+												|   ORDER BY osmid, ts DESC, version DESC
+												| ),
+												| current_objects AS (
+												|   -- Objets actuels non supprimés
+												|   SELECT DISTINCT osm_id::TEXT AS osmid
+												|   FROM pdm_project_#{id.split("_").pop()}
+												|   WHERE osm_id::TEXT NOT IN (
+												|     SELECT osmid FROM object_states WHERE action = 'delete'
+												|   )
+												| ),
+												| existing_objects AS (
+												|   -- Union des objets existants à la date
+												|   SELECT osmid FROM current_objects
+												|   UNION
+												|   SELECT osmid FROM object_states WHERE action != 'delete'
+												| ),
+												| objects_in_boundary AS (
+												|   -- Filtrer par zone administrative
+												|   SELECT eo.osmid
+												|   FROM existing_objects eo
+												|   INNER JOIN pdm_features_boundary pfb ON eo.osmid = pfb.osmid
+												|   WHERE pfb.project = '#{id}'
+												|     AND pfb.boundary = 12345  -- ID de la zone (ex: département, commune)
+												|     AND ('2025-01-15T23:59:59Z' BETWEEN pfb.start_ts AND pfb.end_ts
+												|          OR (pfb.start_ts IS NULL AND pfb.end_ts IS NULL)
+												|          OR ('2025-01-15T23:59:59Z' >= pfb.start_ts 
+												|              AND (pfb.end_ts IS NULL OR '2025-01-15T23:59:59Z' <= pfb.end_ts)))
+												| )
+												| SELECT COUNT(*) AS count
+												| FROM objects_in_boundary;
+									
+									div.alert.alert-info.mt-3
+										i.fa.fa-info-circle.mr-2
+										= __("Note : Les décomptes sont pré-calculés et stockés dans pdm_feature_counts pour améliorer les performances. Les requêtes ci-dessus montrent la logique de calcul utilisée.")
+					
+					script.
+						// Gestionnaire pour le collapse "Comment sont calculés les décomptes ?"
+						(function() {
+							function initCollapse() {
+								const toggle = document.getElementById('counts-explanation-toggle');
+								const collapse = document.getElementById('counts-explanation');
+								const icon = document.getElementById('counts-explanation-icon');
+								
+								if (toggle && collapse && icon) {
+									toggle.addEventListener('click', function() {
+										const isExpanded = collapse.classList.contains('show');
+										
+										if (isExpanded) {
+											collapse.classList.remove('show');
+											collapse.style.display = 'none';
+											icon.classList.remove('fa-chevron-up');
+											icon.classList.add('fa-chevron-down');
+										} else {
+											collapse.classList.add('show');
+											collapse.style.display = 'block';
+											icon.classList.remove('fa-chevron-down');
+											icon.classList.add('fa-chevron-up');
+										}
+									});
+								}
+							}
+							
+							// Initialiser au chargement du DOM
+							if (document.readyState === 'loading') {
+								document.addEventListener('DOMContentLoaded', initCollapse);
+							} else {
+								initCollapse();
+							}
+						})();
+
 	a#contribute
 	div.container-fluid.py-5
 		//- Contribute
@@ -92,19 +260,6 @@ block content
 						i.fa.fa-rss.mr-2
 						| #{__("Article de blog")}
 
-	//- Statistics
-	a#statistics
-	div.container-fluid.py-5.mb-3.pdm-section-highlight
-		div.blog-post.container
-			h2.blog-post-title.mb-3
-				i.fa.fa-chart-bar.mr-2(style="font-size: 2.1rem")
-				| #{__("Statistiques")}
-
-			if isNext
-				p= __("Les statistiques d'avancement seront affichées lors du lancement du projet du mois le %s.", new Date(start_date).toLocaleString(getLocale(), { day: "numeric", month: "long" }))
-			else
-				include ../components/stats.pug
-
 	//- Data
 	a#data
 	div.container-fluid.py-5
@@ -126,39 +281,79 @@ block content
 			//- API section for zone-based statistics
 			if !isNext && statistics && statistics.count
 				div.mt-5
-					h3.blog-post-title
-						i.fa.fa-code.mr-2
-						| #{__("API de mesures par zone")}
-					p= __("Vous pouvez récupérer les statistiques de ce projet pour une zone administrative donnée (ville, département, etc.) via l'URL suivante (port 3000) :")
+					div.card
+						div.card-header.d-flex.justify-content-between.align-items-center(style="cursor: pointer;" id="api-measures-toggle")
+							h3.blog-post-title.mb-0
+								i.fa.fa-code.mr-2
+								| #{__("API de mesures par zone")}
+							i.fa.fa-chevron-down.ml-auto#api-measures-icon
+						div.collapse#api-measures
+							div.card-body
+								p= __("Vous pouvez récupérer les statistiques de ce projet pour une zone administrative donnée (ville, département, etc.) via l'URL suivante (port 3000) :")
+								
+								div.card.mt-3
+									div.card-header.d-flex.justify-content-between.align-items-center
+										code GET /projects/#{id}/stats
+										a.btn.btn-sm.btn-outline-primary(href=`http://localhost:3000/projects/${id}/stats#zone` target="_blank")
+											i.fa.fa-link.mr-1
+											| #{__("Ouvrir la requête")}
+									div.card-body
+										p.card-text= __("Récupère les statistiques du projet; vous pouvez filtrer ou agréger côté client par zone.")
+										div.mt-3
+											h5= __("Exemple de requête :")
+											pre.bg-light.p-3(style="border-radius: 4px;")
+												code
+													| GET http://localhost:3000/projects/#{id}/stats
+										
+										div.mt-3
+											h5= __("Réponse JSON (extrait) :")
+											pre.bg-light.p-3(style="border-radius: 4px;")
+												code
+													| {
+													|   "chart": [...],
+													|   "count": 1234,
+													|   "mapStyle": { "...": "..." },
+													|   "qualityStats": { "...": "..." }
+													| }
+										
+										div.alert.alert-info.mt-3
+											i.fa.fa-info-circle.mr-2
+											| #{__("Note : Pour des statistiques précises par zone, récupérez les données et filtrez-les selon les limites administratives souhaitées. Les données sont mises à jour quotidiennement.")}
 					
-					div.card.mt-3
-						div.card-header.d-flex.justify-content-between.align-items-center
-							code GET /projects/#{id}/stats
-							a.btn.btn-sm.btn-outline-primary(href=`http://localhost:3000/projects/${id}/stats#zone` target="_blank")
-								i.fa.fa-link.mr-1
-								| #{__("Ouvrir la requête")}
-						div.card-body
-							p.card-text= __("Récupère les statistiques du projet; vous pouvez filtrer ou agréger côté client par zone.")
-							div.mt-3
-								h5= __("Exemple de requête :")
-								pre.bg-light.p-3(style="border-radius: 4px;")
-									code
-										| GET http://localhost:3000/projects/#{id}/stats
+					script.
+						// Gestionnaire pour le collapse "API de mesures par zone"
+						(function() {
+							function initApiCollapse() {
+								const toggle = document.getElementById('api-measures-toggle');
+								const collapse = document.getElementById('api-measures');
+								const icon = document.getElementById('api-measures-icon');
+								
+								if (toggle && collapse && icon) {
+									toggle.addEventListener('click', function() {
+										const isExpanded = collapse.classList.contains('show');
+										
+										if (isExpanded) {
+											collapse.classList.remove('show');
+											collapse.style.display = 'none';
+											icon.classList.remove('fa-chevron-up');
+											icon.classList.add('fa-chevron-down');
+										} else {
+											collapse.classList.add('show');
+											collapse.style.display = 'block';
+											icon.classList.remove('fa-chevron-down');
+											icon.classList.add('fa-chevron-up');
+										}
+									});
+								}
+							}
 							
-							div.mt-3
-								h5= __("Réponse JSON (extrait) :")
-								pre.bg-light.p-3(style="border-radius: 4px;")
-									code
-										| {
-										|   "chart": [...],
-										|   "count": 1234,
-										|   "mapStyle": { "...": "..." },
-										|   "qualityStats": { "...": "..." }
-										| }
-							
-							div.alert.alert-info.mt-3
-								i.fa.fa-info-circle.mr-2
-								| #{__("Note : Pour des statistiques précises par zone, récupérez les données et filtrez-les selon les limites administratives souhaitées. Les données sont mises à jour quotidiennement.")}
+							// Initialiser au chargement du DOM
+							if (document.readyState === 'loading') {
+								document.addEventListener('DOMContentLoaded', initApiCollapse);
+							} else {
+								initApiCollapse();
+							}
+						})();
 
 			//- JOSM section
 			if !isNext && database && database.osmium_tag_filter

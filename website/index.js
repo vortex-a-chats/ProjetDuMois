@@ -275,6 +275,122 @@ app.get("/api/active-users", (req, res) => {
     });
 });
 
+// API: Cumulative remaining objects to integrate
+app.get("/api/all-projects-remaining", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const allProjects = Object.values(projects);
+  
+  Promise.all(
+    allProjects.map((proj) => {
+      // Get project target/expected count
+      const totalToIntegrate =
+        typeof proj.statistics?.total_expected === "number"
+          ? proj.statistics.total_expected
+          : typeof proj.statistics?.to_integrate === "number"
+            ? proj.statistics.to_integrate
+            : typeof proj.statistics?.target === "number"
+              ? proj.statistics.target
+              : null;
+
+      if (totalToIntegrate == null) {
+        return Promise.resolve({
+          id: proj.id,
+          name: proj.title,
+          data: [],
+          cumulative: [],
+        });
+      }
+
+      return pool
+        .query(
+          `
+          SELECT ts, amount
+          FROM pdm_feature_counts
+          WHERE project = $1
+          ORDER BY ts ASC
+        `,
+          [proj.id],
+        )
+        .then((results) => {
+          const chartData = results.rows.map((r) => ({
+            t: r.ts,
+            y: parseInt(r.amount) || 0,
+          }));
+
+          // Calculate remaining over time
+          // If no data exists yet, we could initialize with the total, but for now we'll return empty
+          // The graph will show data once statistics are calculated
+          const remainingData = chartData.length > 0
+            ? chartData.map((point) => ({
+                t: point.t,
+                y: Math.max(0, totalToIntegrate - point.y),
+              }))
+            : [];
+
+          return {
+            id: proj.id,
+            name: proj.title,
+            data: remainingData,
+            cumulative: remainingData, // Will be calculated below
+          };
+        })
+        .catch(() => {
+          return {
+            id: proj.id,
+            name: proj.title,
+            data: [],
+            cumulative: [],
+          };
+        });
+    }),
+  )
+    .then((allData) => {
+      // Check if any project has an objective defined
+      const projectsWithObjectives = allData.filter((proj) => proj.data.length > 0 || proj.cumulative.length > 0);
+      const hasAnyObjective = allProjects.some((proj) => {
+        return typeof proj.statistics?.total_expected === "number" ||
+               typeof proj.statistics?.to_integrate === "number" ||
+               typeof proj.statistics?.target === "number";
+      });
+      
+      // Merge all remaining data points by timestamp and sum remaining amounts
+      const dataMap = new Map();
+      
+      allData.forEach((projectData) => {
+        projectData.data.forEach((point) => {
+          const timestamp = new Date(point.t).toISOString();
+          const existing = dataMap.get(timestamp) || 0;
+          dataMap.set(timestamp, existing + point.y);
+        });
+      });
+      
+      // Convert to array and sort by timestamp
+      const cumulativeData = Array.from(dataMap.entries())
+        .map(([t, y]) => ({ t, y }))
+        .sort((a, b) => new Date(a.t) - new Date(b.t));
+      
+      // Return both individual project data and cumulative
+      // Include metadata about whether objectives exist
+      res.json({
+        projects: allData.map((proj) => ({
+          id: proj.id,
+          name: proj.name,
+          data: proj.data,
+        })),
+        cumulative: cumulativeData.length > 0 ? cumulativeData : [],
+        hasObjectives: hasAnyObjective,
+        hasData: cumulativeData.length > 0,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching cumulative remaining:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
 // API: Podiums (contributions and quality)
 app.get("/api/podiums", (req, res) => {
   if (CONFIG.MAINTENANCE_MODE === true) {
@@ -426,7 +542,7 @@ app.get("/error/:code", (req, res) => {
   }
 
   const httpcode =
-    req.params.code && !isNaN(req.params.code) ? req.params.code : "400";
+    req.params.code && !isNaN(req.params.code) ? parseInt(req.params.code) : 400;
   res.status(httpcode).render("pages/error", { CONFIG, httpcode });
 });
 
@@ -770,10 +886,60 @@ app.get("/projects/:id/stats", (req, res) => {
         .map((r) => r.data[r.data.length - 1].y)
         .reduce((acc, cur) => acc + cur);
 
+      // Find the "à ajouter" datasource (usually the one with lower item ID)
+      const addDataSource = p.datasources.find(
+        (ds) => ds.source === "osmose" && ds.name && ds.name.toLowerCase().includes("ajouter")
+      );
+      
+      let osmoseEtaDays = null;
+      let osmoseRemaining = null;
+      
+      if (addDataSource) {
+        // Find the corresponding chart data
+        const addChartData = results.find(
+          (r) => r.label === addDataSource.name
+        );
+        
+        if (addChartData && addChartData.data && addChartData.data.length > 0) {
+          // Current remaining tasks (last value)
+          osmoseRemaining = addChartData.data[addChartData.data.length - 1].y;
+          
+          // Calculate tasks solved in last 180 days (6 months)
+          const now = new Date();
+          const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+          
+          // Find data point closest to 6 months ago
+          let sixMonthsAgoData = null;
+          for (let i = addChartData.data.length - 1; i >= 0; i--) {
+            const dataDate = new Date(addChartData.data[i].t);
+            if (dataDate <= sixMonthsAgo) {
+              sixMonthsAgoData = addChartData.data[i];
+              break;
+            }
+          }
+          
+          // If we have data from 6 months ago, calculate ETA
+          if (sixMonthsAgoData && osmoseRemaining > 0) {
+            const tasksSolved180d = Math.max(0, sixMonthsAgoData.y - osmoseRemaining);
+            
+            if (tasksSolved180d > 0) {
+              const dailyRate = tasksSolved180d / 180;
+              if (dailyRate > 0) {
+                osmoseEtaDays = Math.ceil(osmoseRemaining / dailyRate);
+              }
+              // If dailyRate is 0 or tasksSolved180d is 0, ETA is infinite (null)
+            }
+            // If no tasks were solved in 6 months, ETA is infinite (remains null)
+          }
+        }
+      }
+
       return {
         chart: results,
         tasksSolved:
           nbTasksStart - nbTasksEnd > 0 ? nbTasksStart - nbTasksEnd : undefined,
+        osmoseRemaining,
+        osmoseEtaDays,
       };
     }),
   );
@@ -1234,6 +1400,7 @@ app.get("/projects/:id/stats", (req, res) => {
 
     // Add project metadata for chart display
     toSend.projectStartDate = p.start_date;
+    toSend.projectEndDate = p.end_date;
     toSend.projectName = p.title;
     // Extract geographic zone from OSH_PBF_URL (e.g., "france" from "france-internal.osh.pbf")
     const pbfUrl = CONFIG.OSH_PBF_URL || "";
@@ -1583,6 +1750,152 @@ app.get("/projects/:id/zones-search", (req, res) => {
     .catch((err) => {
       console.error("Error searching zones:", err);
       res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API: Deletions statistics for a project
+app.get("/projects/:id/deletions", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  if (!req.params.id || !projects[req.params.id]) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+
+  const p = projects[req.params.id];
+
+  // Get deletions grouped by day
+  pool
+    .query(
+      `
+      SELECT 
+        DATE(ts) as date,
+        COUNT(*) as deletion_count,
+        COUNT(DISTINCT userid) as user_count
+      FROM pdm_changes
+      WHERE project = $1
+        AND action = 'delete'
+      GROUP BY DATE(ts)
+      ORDER BY DATE(ts) ASC
+    `,
+      [req.params.id],
+    )
+    .then((results) => {
+      const chartData = results.rows.map((r) => ({
+        t: r.date,
+        y: parseInt(r.deletion_count) || 0,
+        users: parseInt(r.user_count) || 0,
+      }));
+
+      // Get changesets with deletions (grouped by changeset_id, or by user and date if changeset_id is null)
+      // First check if changeset_id column exists
+      return pool
+        .query(
+          `
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'pdm_changes' AND column_name = 'changeset_id'
+          LIMIT 1
+        `
+        )
+        .then((colCheck) => {
+          const hasChangesetId = colCheck.rows.length > 0;
+          
+          // Build query based on whether changeset_id column exists
+          const changesetQuery = hasChangesetId
+            ? `
+              SELECT 
+                DATE(ts) as date,
+                username,
+                userid,
+                changeset_id,
+                COUNT(*) as deletion_count,
+                MIN(ts) as first_deletion,
+                MAX(ts) as last_deletion
+              FROM pdm_changes
+              WHERE project = $1
+                AND action = 'delete'
+              GROUP BY DATE(ts), username, userid, changeset_id
+              ORDER BY DATE(ts) DESC, deletion_count DESC
+              LIMIT 100
+            `
+            : `
+              SELECT 
+                DATE(ts) as date,
+                username,
+                userid,
+                NULL::BIGINT as changeset_id,
+                COUNT(*) as deletion_count,
+                MIN(ts) as first_deletion,
+                MAX(ts) as last_deletion
+              FROM pdm_changes
+              WHERE project = $1
+                AND action = 'delete'
+              GROUP BY DATE(ts), username, userid
+              ORDER BY DATE(ts) DESC, deletion_count DESC
+              LIMIT 100
+            `;
+          
+          return pool.query(changesetQuery, [req.params.id]);
+        })
+        .then((changesetResults) => {
+          const changesets = changesetResults.rows.map((r) => {
+            const changesetId = r.changeset_id != null ? parseInt(r.changeset_id) : null;
+            const dateStr = new Date(r.date).toISOString().split('T')[0];
+            const nextDayStr = new Date(new Date(r.date).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            
+            // Construct URLs
+            let achaviUrl;
+            let osmChangesetUrl = null;
+            
+            if (changesetId) {
+              // Use changeset ID directly
+              achaviUrl = `https://overpass-api.de/achavi/?changeset=${changesetId}`;
+              osmChangesetUrl = `https://www.openstreetmap.org/changeset/${changesetId}`;
+            } else {
+              // Fallback: approximate changeset search by user and date range
+              achaviUrl = r.username 
+                ? `https://overpass-api.de/achavi/?user=${encodeURIComponent(r.username)}&time=${dateStr}/${nextDayStr}`
+                : `https://overpass-api.de/achavi/?time=${dateStr}/${nextDayStr}`;
+            }
+            
+            // User profile URL on osm.org
+            const osmUserUrl = r.userid 
+              ? `https://www.openstreetmap.org/user/${encodeURIComponent(r.username || '')}`
+              : null;
+            
+            return {
+              date: r.date,
+              username: r.username || 'Inconnu',
+              userid: r.userid != null ? parseInt(r.userid) : null,
+              changeset_id: changesetId,
+              deletion_count: parseInt(r.deletion_count) || 0,
+              first_deletion: r.first_deletion,
+              last_deletion: r.last_deletion,
+              achavi_url: achaviUrl,
+              osm_changeset_url: osmChangesetUrl,
+              osm_user_url: osmUserUrl,
+            };
+          });
+
+          res.json({
+            chart: chartData,
+            changesets: changesets,
+          });
+        })
+        .catch((err) => {
+          console.error("Error fetching changesets:", err);
+          // Return chart data even if changesets query fails
+          res.json({
+            chart: chartData,
+            changesets: [],
+          });
+        });
+    })
+    .catch((err) => {
+      console.error("Error fetching deletions:", err);
+      res.status(500).json({ error: "Internal server error", details: err.message });
     });
 });
 

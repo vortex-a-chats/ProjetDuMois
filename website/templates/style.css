@@ -998,3 +998,17 @@ input:checked + .slider:before {
 		width: 250px;
 	}
 }
+
+/*
+ * Modals
+ */
+
+/* All modals should be offset 50px from top */
+.modal {
+	top: 50px;
+}
+
+/* Ensure modals can be closed by clicking on backdrop */
+.modal-backdrop {
+	cursor: pointer;
+}

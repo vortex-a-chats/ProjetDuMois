@@ -16,42 +16,64 @@ block navbar
 
 block content
 	div.container
-		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark.position-relative(style=commonsImage ? "min-height: 200px; background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url(" + commonsImage.thumburl + "); background-size: cover; background-position: center;" : "")
+		div.jumbotron.py-2.px-3.pb-3.p-md-5.mb-3.text-white.rounded.bg-dark.position-relative(style=commonsImage ? "min-height: 200px;" : "")
 			if commonsImage
-				div.position-absolute(style="top: 10px; right: 10px;")
-					a.btn.btn-sm.btn-light(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener")
-						i.fa.fa-external-link-alt.mr-1
-						= __("Voir sur Commons")
-			h1.font-italic= boundary.name
-			p.lead.mb-0
-				= __("Zone administrative")
-				| : 
-				- var adminLevelText = boundary.admin_level === 4 ? __("Région") : boundary.admin_level === 6 ? __("Département") : __("Commune")
-				= adminLevelText
-				br
-				if allProjectsForZone && allProjectsForZone.length > 1
-					= __("Projet")
+				div.position-absolute(style="top: 0; left: 0; right: 0; bottom: 0; z-index: 0; overflow: hidden;")
+					img(src=commonsImage.thumburl style="width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.3s;" onload="this.style.opacity='1';" onerror="this.style.display='none';" crossorigin="anonymous" id="commons-bg-image" referrerpolicy="no-referrer")
+					div.position-absolute(style="top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)); z-index: 1; pointer-events: none;")
+				div.position-relative(style="z-index: 2;")
+					div.position-absolute(style="top: 10px; right: 10px;")
+						a.btn.btn-sm.btn-light(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener")
+							i.fa.fa-external-link-alt.mr-1
+							= __("Voir sur Commons")
+					h1.font-italic= boundary.name
+					p.lead.mb-0
+						= __("Zone administrative")
+						| : 
+						- var adminLevelText = boundary.admin_level === 4 ? __("Région") : boundary.admin_level === 6 ? __("Département") : __("Commune")
+						= adminLevelText
+						br
+						if allProjectsForZone && allProjectsForZone.length > 1
+							= __("Projet")
+							| : 
+							select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" data-boundary-id=boundary.id onchange="window.location.href='/projects/' + this.value + '/zones/' + this.getAttribute('data-boundary-id')")
+								each proj in allProjectsForZone
+									option(value=proj.id selected=(proj.id === project.id) style="background: #343a40; color: white;")= proj.title
+						else
+							= __("Projet")
+							| : 
+							a.text-white(href=`/projects/${project.id}`)= project.title
+					if commonsImage
+						div.mt-2(style="font-size: 0.75em; opacity: 0.85;")
+							= __("Image")
+							| : 
+							if commonsImage.author
+								span!= commonsImage.author
+							if commonsImage.license
+								|  (
+								span!= commonsImage.license
+								| )
+							|  - 
+							a.text-white(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener" style="text-decoration: underline;")
+								= __("Wikimedia Commons")
+			else
+				h1.font-italic= boundary.name
+				p.lead.mb-0
+					= __("Zone administrative")
 					| : 
-					select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" data-boundary-id=boundary.id onchange="window.location.href='/projects/' + this.value + '/zones/' + this.getAttribute('data-boundary-id')")
-						each proj in allProjectsForZone
-							option(value=proj.id selected=(proj.id === project.id) style="background: #343a40; color: white;")= proj.title
-				else
-					= __("Projet")
-					| : 
-					a.text-white(href=`/projects/${project.id}`)= project.title
-			if commonsImage
-				div.mt-2(style="font-size: 0.75em; opacity: 0.85;")
-					= __("Image")
-					| : 
-					if commonsImage.author
-						span!= commonsImage.author
-					if commonsImage.license
-						|  (
-						span!= commonsImage.license
-						| )
-					|  - 
-					a.text-white(href=`https://commons.wikimedia.org/wiki/${encodeURIComponent(commonsImage.title)}` target="_blank" rel="noopener" style="text-decoration: underline;")
-						= __("Wikimedia Commons")
+					- var adminLevelText = boundary.admin_level === 4 ? __("Région") : boundary.admin_level === 6 ? __("Département") : __("Commune")
+					= adminLevelText
+					br
+					if allProjectsForZone && allProjectsForZone.length > 1
+						= __("Projet")
+						| : 
+						select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" data-boundary-id=boundary.id onchange="window.location.href='/projects/' + this.value + '/zones/' + this.getAttribute('data-boundary-id')")
+							each proj in allProjectsForZone
+								option(value=proj.id selected=(proj.id === project.id) style="background: #343a40; color: white;")= proj.title
+					else
+						= __("Projet")
+						| : 
+						a.text-white(href=`/projects/${project.id}`)= project.title
 
 	div.container-fluid.py-5.pdm-section-highlight
 		div.container

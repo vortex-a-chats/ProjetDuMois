@@ -3,7 +3,7 @@ extends ../layout.pug
 block head
 	script(src="/lib/chart.js/chart.min.js")
 	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
-	script(src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js")
+	script(src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@0.7.7/dist/chartjs-plugin-zoom.min.js")
 
 block navbar
 	a(href="#others")
@@ -67,6 +67,17 @@ block content
 							div(style="position: relative;")
 								div.spinner-charts-users.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 								canvas#active-users-chart.w-100(height="400")
+								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+					
+					//- Cumulative remaining objects chart
+					div.row.mb-4
+						div.col-12
+							div.d-flex.justify-content-between.align-items-center.mb-2
+								h3.mb-0= __("Cumul des objets à intégrer")
+							div(style="position: relative;")
+								div.spinner-charts-remaining.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+								canvas#remaining-cumulative-chart.w-100(height="400")
 								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
 									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
 					
@@ -609,6 +620,116 @@ block content
 					console.error('Error loading active users:', err);
 					const chartContainer = document.getElementById("active-users-chart").parentElement;
 					const spinner = chartContainer.querySelector(".spinner-charts-users");
+					if (spinner) spinner.remove();
+					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
+				});
+
+			// Load cumulative remaining objects chart
+			fetch('/api/all-projects-remaining')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
+					}
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.cumulative || !Array.isArray(data.cumulative) || data.cumulative.length === 0) {
+						// No data available - show appropriate message
+						const chartContainer = document.getElementById("remaining-cumulative-chart").parentElement;
+						const spinner = chartContainer.querySelector(".spinner-charts-remaining");
+						if (spinner) spinner.remove();
+						
+						let message = '';
+						if (data && data.hasObjectives === false) {
+							message = '<p class="text-muted">Aucun projet n\'a d\'objectif défini (statistics.total_expected, statistics.to_integrate ou statistics.target). Ce graphique nécessite qu\'au moins un projet ait un objectif défini.</p>';
+						} else if (data && data.hasObjectives === true && data.hasData === false) {
+							message = '<p class="text-muted">Des projets ont des objectifs définis, mais aucune donnée statistique n\'est encore disponible. Les données apparaîtront après la première mise à jour des statistiques des projets.</p>';
+						} else {
+							message = '<p class="text-muted">Aucune donnée disponible pour ce graphique.</p>';
+						}
+						
+						chartContainer.innerHTML = message;
+						return;
+					}
+					
+					const chartContainer = document.getElementById("remaining-cumulative-chart").parentElement;
+					const ctx = document.getElementById("remaining-cumulative-chart").getContext("2d");
+					
+					// Prepare datasets: one for cumulative, and optionally one per project
+					const datasets = [{
+						label: "#{__('Cumul total des objets à intégrer')}",
+						data: data.cumulative,
+						fill: true,
+						backgroundColor: "rgba(255, 152, 0, 0.2)",
+						borderColor: "#FF9800",
+						lineTension: 0.3,
+						pointRadius: 0,
+						pointHoverRadius: 4
+					}];
+					
+					// Optionally add individual project lines (limit to first 5 to avoid clutter)
+					if (data.projects && data.projects.length > 0) {
+						const colors = [
+							{ border: "#F44336", fill: "rgba(244, 67, 54, 0.1)" },
+							{ border: "#4CAF50", fill: "rgba(76, 175, 80, 0.1)" },
+							{ border: "#2196F3", fill: "rgba(33, 150, 243, 0.1)" },
+							{ border: "#9C27B0", fill: "rgba(156, 39, 176, 0.1)" },
+							{ border: "#00BCD4", fill: "rgba(0, 188, 212, 0.1)" }
+						];
+						
+						data.projects.slice(0, 5).forEach((proj, index) => {
+							if (proj.data && proj.data.length > 0) {
+								const color = colors[index % colors.length];
+								datasets.push({
+									label: proj.name,
+									data: proj.data,
+									fill: false,
+									borderColor: color.border,
+									lineTension: 0.3,
+									pointRadius: 0,
+									pointHoverRadius: 3,
+									borderDash: [5, 5]
+								});
+							}
+						});
+					}
+					
+					const myChart = new Chart(ctx, {
+						type: "line",
+						data: { datasets: datasets },
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true,
+										callback: function(value) {
+											return new Intl.NumberFormat('fr-FR').format(value);
+										}
+									}
+								}]
+							},
+							legend: {
+								display: true,
+								position: 'bottom'
+							}
+						}
+					});
+
+					const spinner = chartContainer.querySelector(".spinner-charts-remaining");
+					if (spinner) spinner.remove();
+				})
+				.catch(err => {
+					console.error('Error loading cumulative remaining:', err);
+					const chartContainer = document.getElementById("remaining-cumulative-chart").parentElement;
+					const spinner = chartContainer.querySelector(".spinner-charts-remaining");
 					if (spinner) spinner.remove();
 					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
 				});

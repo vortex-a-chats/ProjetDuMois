@@ -89,19 +89,63 @@ NOTES_DUMP_FILE="$TMP_NOTES_DIR/planet-notes-latest.osn.bz2"
 NOTES_DUMP_XML="$TMP_NOTES_DIR/planet-notes-latest.osn"
 NOTES_FRANCE_XML="$TMP_NOTES_DIR/notes-france-\${CURRENT_DATE}.osn"
 
-# Télécharger le dump de notes (seulement si plus récent ou absent)
+# Télécharger le dump de notes (seulement si absent, vide, ou plus vieux que 24h)
+# #region agent log
+SHOULD_DOWNLOAD=false
 if [ ! -f "$NOTES_DUMP_FILE" ] || [ ! -s "$NOTES_DUMP_FILE" ]; then
+	SHOULD_DOWNLOAD=true
+	echo "   => Notes dump file missing or empty, will download"
+else
+	# Vérifier l'âge du fichier (24 heures = 86400 secondes)
+	FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_FILE" 2>/dev/null || echo 0)))
+	if [ $FILE_AGE -gt 86400 ]; then
+		SHOULD_DOWNLOAD=true
+		FILE_AGE_HOURS=$((FILE_AGE / 3600))
+		echo "   => Notes dump file is $FILE_AGE_HOURS hours old (older than 24h), will download"
+	else
+		FILE_AGE_HOURS=$((FILE_AGE / 3600))
+		echo "   => Using existing notes dump file (age: $FILE_AGE_HOURS hours, less than 24h)"
+	fi
+fi
+# #endregion agent log
+
+if [ "$SHOULD_DOWNLOAD" = "true" ]; then
 	echo "   => Downloading notes dump (this may take a while)..."
 	if ! wget -N -P "$TMP_NOTES_DIR" "$NOTES_DUMP_URL" 2>&1; then
 		echo "   ⚠️  Error downloading notes dump"
 		exit 1
 	fi
-else
-	echo "   => Using existing notes dump file"
 fi
 
 # Décompresser le dump avec Python (bz2 est intégré dans Python)
-if [ ! -f "$NOTES_DUMP_XML" ] || [ "$NOTES_DUMP_FILE" -nt "$NOTES_DUMP_XML" ]; then
+# #region agent log
+SHOULD_DECOMPRESS=false
+LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
+if [ ! -f "$NOTES_DUMP_XML" ]; then
+	SHOULD_DECOMPRESS=true
+	echo "   => Decompressing notes dump (file missing)..."
+	echo "{\"location\":\"40_global_stats_update.js:123\",\"message\":\"decompression needed - file missing\",\"data\":{\"file\":\"$NOTES_DUMP_XML\"},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+elif [ "$NOTES_DUMP_FILE" -nt "$NOTES_DUMP_XML" ]; then
+	SHOULD_DECOMPRESS=true
+	echo "   => Decompressing notes dump (compressed file is newer)..."
+	echo "{\"location\":\"40_global_stats_update.js:126\",\"message\":\"decompression needed - compressed newer\",\"data\":{\"compressed\":\"$NOTES_DUMP_FILE\",\"decompressed\":\"$NOTES_DUMP_XML\"},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+else
+	# Vérifier l'âge du fichier décompressé (24 heures = 86400 secondes)
+	XML_FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_XML" 2>/dev/null || echo 0)))
+	if [ $XML_FILE_AGE -gt 86400 ]; then
+		SHOULD_DECOMPRESS=true
+		XML_FILE_AGE_HOURS=$((XML_FILE_AGE / 3600))
+		echo "   => Decompressing notes dump (decompressed file is $XML_FILE_AGE_HOURS hours old, older than 24h)..."
+		echo "{\"location\":\"40_global_stats_update.js:131\",\"message\":\"decompression needed - file too old\",\"data\":{\"file\":\"$NOTES_DUMP_XML\",\"ageHours\":$XML_FILE_AGE_HOURS},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+	else
+		XML_FILE_AGE_HOURS=$((XML_FILE_AGE / 3600))
+		echo "   => Using existing decompressed notes dump (age: $XML_FILE_AGE_HOURS hours, less than 24h)"
+		echo "{\"location\":\"40_global_stats_update.js:137\",\"message\":\"using existing decompressed file\",\"data\":{\"file\":\"$NOTES_DUMP_XML\",\"ageHours\":$XML_FILE_AGE_HOURS},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+	fi
+fi
+# #endregion agent log
+
+if [ "$SHOULD_DECOMPRESS" = "true" ]; then
 	echo "   => Decompressing notes dump..."
 	# Vérifier que le fichier compressé existe et n'est pas vide
 	if [ ! -f "$NOTES_DUMP_FILE" ] || [ ! -s "$NOTES_DUMP_FILE" ]; then
@@ -170,65 +214,173 @@ async function processNotes() {
 		
 		console.log('   => Parsing notes XML file (streaming mode for large file)...');
 		
-		let notesOpen = 0;
-		let notesClosed = 0;
-		const notesByBoundary = new Map(); // Map<boundaryId, {open: number, closed: number}>
+		// Map pour stocker les comptages par date: Map<dateString, {open: number, closed: number}>
+		const notesByDate = new Map();
+		const notesByBoundary = new Map(); // Map<boundaryId, Map<dateString, {open: number, closed: number}>>
+		const allNotes = []; // Stocker toutes les notes pour traitement par zone
 		let buffer = '';
+		let inNote = false;
+		let currentNote = null;
+		let noteDepth = 0;
 		
 		// Lire le fichier par chunks pour éviter de charger tout en mémoire
 		const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 64 * 1024 }); // 64KB chunks
+		
+		// Fonction pour extraire une date au format YYYY-MM-DD depuis un timestamp ISO
+		function extractDate(isoString) {
+			if (!isoString) return null;
+			return isoString.split('T')[0];
+		}
+		
+		// Fonction pour obtenir toutes les dates entre deux dates (incluses)
+		function getDatesBetween(startDate, endDate) {
+			const dates = [];
+			const start = new Date(startDate);
+			const end = new Date(endDate);
+			const current = new Date(start);
+			
+			while (current <= end) {
+				dates.push(current.toISOString().split('T')[0]);
+				current.setDate(current.getDate() + 1);
+			}
+			return dates;
+		}
+		
+		// Fonction pour traiter une note complète
+		function processNote(note) {
+			const lat = parseFloat(note.lat);
+			const lon = parseFloat(note.lon);
+			
+			// Vérifier si la note est dans la bbox de la France
+			if (isNaN(lat) || isNaN(lon) || lat < 41.0 || lat > 51.0 || lon < 2.0 || lon > 8.0) {
+				return;
+			}
+			
+			const createdDate = extractDate(note.created_at);
+			const closedDate = extractDate(note.closed_at);
+			const isClosed = !!closedDate;
+			const today = new Date().toISOString().split('T')[0];
+			
+			if (!createdDate) {
+				return; // Pas de date de création, ignorer
+			}
+			
+			// Déterminer la période de vie de la note
+			const endDate = closedDate || today;
+			const dates = getDatesBetween(createdDate, endDate);
+			
+			// Pour chaque date, compter la note comme ouverte ou fermée
+			dates.forEach(date => {
+				if (!notesByDate.has(date)) {
+					notesByDate.set(date, { open: 0, closed: 0 });
+				}
+				const counts = notesByDate.get(date);
+				
+				if (isClosed && date >= closedDate) {
+					// Note fermée à partir de la date de fermeture
+					counts.closed++;
+				} else {
+					// Note ouverte avant la date de fermeture (ou jamais fermée)
+					counts.open++;
+				}
+			});
+			
+			// Stocker la note pour traitement par zone
+			allNotes.push({
+				lat,
+				lon,
+				createdDate,
+				closedDate,
+				isClosed
+			});
+		}
 		
 		await new Promise((resolve, reject) => {
 			stream.on('data', (chunk) => {
 				buffer += chunk;
 				
-				// Chercher les balises <note> dans le buffer
-				let noteStart = buffer.indexOf('<note');
-				while (noteStart !== -1) {
-					// Trouver la fin de la balise <note>
-					const noteEnd = buffer.indexOf('>', noteStart);
-					if (noteEnd === -1) {
-						// La balise n'est pas complète, garder le reste pour le prochain chunk
-						buffer = buffer.substring(noteStart);
-						break;
-					}
-					
-					const noteTag = buffer.substring(noteStart, noteEnd + 1);
-					
-					// Extraire lat et lon des attributs
-					const latMatch = noteTag.match(/lat="([^"]*)"/);
-					const lonMatch = noteTag.match(/lon="([^"]*)"/);
-					
-					if (latMatch && lonMatch) {
-						const lat = parseFloat(latMatch[1]);
-						const lon = parseFloat(lonMatch[1]);
-						
-						// Vérifier si la note est dans la bbox de la France
-						if (!isNaN(lat) && !isNaN(lon) && lat >= 41.0 && lat <= 51.0 && lon >= 2.0 && lon <= 8.0) {
-							// Vérifier le statut (closed si closed_at existe dans les attributs)
-							const isClosed = noteTag.includes('closed_at="');
-							
-							// Stocker la note pour traitement par zone
-							notesByBoundary.set(
-								notesByBoundary.size,
-								{ lat, lon, isClosed }
-							);
-							
-							if (isClosed) {
-								notesClosed++;
-							} else {
-								notesOpen++;
-							}
+				// Parser le XML de manière plus robuste pour capturer les balises complètes
+				let pos = 0;
+				while (pos < buffer.length) {
+					if (!inNote) {
+						// Chercher le début d'une balise <note>
+						const noteStart = buffer.indexOf('<note', pos);
+						if (noteStart === -1) {
+							// Plus de balises <note>, garder le reste du buffer
+							buffer = buffer.substring(pos);
+							break;
 						}
+						
+						// Extraire les attributs de la balise <note>
+						const tagEnd = buffer.indexOf('>', noteStart);
+						if (tagEnd === -1) {
+							// La balise n'est pas complète, garder le reste pour le prochain chunk
+							buffer = buffer.substring(noteStart);
+							break;
+						}
+						
+						const noteTag = buffer.substring(noteStart, tagEnd + 1);
+						
+						// Extraire tous les attributs
+						const latMatch = noteTag.match(/lat="([^"]*)"/);
+						const lonMatch = noteTag.match(/lon="([^"]*)"/);
+						const createdMatch = noteTag.match(/created_at="([^"]*)"/);
+						const closedMatch = noteTag.match(/closed_at="([^"]*)"/);
+						
+						if (latMatch && lonMatch && createdMatch) {
+							currentNote = {
+								lat: latMatch[1],
+								lon: lonMatch[1],
+								created_at: createdMatch[1],
+								closed_at: closedMatch ? closedMatch[1] : null
+							};
+							inNote = true;
+							noteDepth = 1;
+							pos = tagEnd + 1;
+							
+							// Vérifier si c'est une balise auto-fermante
+							if (noteTag.endsWith('/>')) {
+								// Note complète, traiter immédiatement
+								processNote(currentNote);
+								currentNote = null;
+								inNote = false;
+								noteDepth = 0;
+							}
+						} else {
+							pos = tagEnd + 1;
+						}
+					} else {
+						// On est dans une note, chercher la balise de fermeture </note>
+						const closeTag = buffer.indexOf('</note>', pos);
+						if (closeTag === -1) {
+							// La balise de fermeture n'est pas dans ce chunk
+							buffer = buffer.substring(pos);
+							break;
+						}
+						
+						// Note complète, traiter
+						if (currentNote) {
+							processNote(currentNote);
+							currentNote = null;
+						}
+						
+						inNote = false;
+						noteDepth = 0;
+						pos = closeTag + 7; // 7 = longueur de '</note>'
 					}
-					
-					// Chercher la prochaine balise <note>
-					buffer = buffer.substring(noteEnd + 1);
-					noteStart = buffer.indexOf('<note');
+				}
+				
+				// Si on n'a pas trouvé de balise complète, garder le reste
+				if (pos >= buffer.length) {
+					buffer = '';
 				}
 			});
 			
 			stream.on('end', () => {
+				// Traiter la dernière note si elle est incomplète
+				if (currentNote && inNote) {
+					processNote(currentNote);
+				}
 				resolve();
 			});
 			
@@ -237,14 +389,37 @@ async function processNotes() {
 			});
 		});
 		
-		console.log(\`   => Found \${notesOpen} open notes and \${notesClosed} closed notes\`);
+		console.log(\`   => Found notes across \${notesByDate.size} different dates\`);
 		
-		// Insérer dans la base de données (global)
-		const currentDate = process.argv[3];
-		await pool.query(
-			\`INSERT INTO pdm_note_counts_global (ts, open, closed) VALUES (\$1, \$2, \$3) ON CONFLICT (ts) DO UPDATE SET open = EXCLUDED.open, closed = EXCLUDED.closed\`,
-			[\`\${currentDate}T23:59:59Z\`, notesOpen, notesClosed]
-		);
+		// #region agent log
+		const LOG_FILE = '/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log';
+		const dateKeys = Array.from(notesByDate.keys()).sort();
+		fs.appendFileSync(LOG_FILE, JSON.stringify({location:'40_global_stats_update.js:363',message:'before inserting dates',data:{totalDates:notesByDate.size,firstDate:dateKeys[0],lastDate:dateKeys[dateKeys.length-1],sampleDates:dateKeys.slice(0,10)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'}) + '\\n');
+		// #endregion agent log
+		
+		// Insérer les comptages par date dans la base de données (global)
+		console.log('   => Inserting note counts by date into database...');
+		const dateInserts = [];
+		let dateInsertCount = 0;
+		for (const [date, counts] of notesByDate.entries()) {
+			dateInsertCount++;
+			if (dateInsertCount <= 10 || dateInsertCount % 100 === 0) {
+				// #region agent log
+				fs.appendFileSync(LOG_FILE, JSON.stringify({location:'40_global_stats_update.js:369',message:'inserting date',data:{date,open:counts.open,closed:counts.closed,index:dateInsertCount},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'}) + '\\n');
+				// #endregion agent log
+			}
+			dateInserts.push(
+				pool.query(
+					\`INSERT INTO pdm_note_counts_global (ts, open, closed) VALUES (\$1, \$2, \$3) ON CONFLICT (ts) DO UPDATE SET open = EXCLUDED.open, closed = EXCLUDED.closed\`,
+					[\`\${date}T23:59:59Z\`, counts.open, counts.closed]
+				)
+			);
+		}
+		await Promise.all(dateInserts);
+		// #region agent log
+		fs.appendFileSync(LOG_FILE, JSON.stringify({location:'40_global_stats_update.js:376',message:'after inserting dates',data:{insertedCount:dateInserts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'}) + '\\n');
+		// #endregion agent log
+		console.log(\`   => Inserted/updated \${dateInserts.length} date entries\`);
 		
 		// Traiter les notes par zone si pdm_boundary existe
 		console.log('   => Processing notes by boundary...');
@@ -361,7 +536,19 @@ processNotes();
 NODEJS
 
 # Nettoyer les fichiers temporaires (garder le dump compressé pour éviter de le retélécharger)
-rm -f "$NOTES_DUMP_XML"
+# Ne supprimer le fichier décompressé que s'il a plus de 24h pour éviter de le recréer à chaque exécution
+# #region agent log
+LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
+if [ -f "$NOTES_DUMP_XML" ]; then
+	XML_FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_XML" 2>/dev/null || echo 0)))
+	if [ $XML_FILE_AGE -gt 86400 ]; then
+		echo "{\"location\":\"40_global_stats_update.js:536\",\"message\":\"removing old decompressed file\",\"data\":{\"file\":\"$NOTES_DUMP_XML\",\"ageHours\":$((XML_FILE_AGE / 3600))},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+		rm -f "$NOTES_DUMP_XML"
+	else
+		echo "{\"location\":\"40_global_stats_update.js:536\",\"message\":\"keeping decompressed file\",\"data\":{\"file\":\"$NOTES_DUMP_XML\",\"ageHours\":$((XML_FILE_AGE / 3600))},\"timestamp\":$(date +%s000),\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE"
+	fi
+fi
+# #endregion agent log
 `;
 
 // Itinéraires de randonnée - extraire depuis le fichier OSH
@@ -388,9 +575,14 @@ echo "   => Extracting relations from OSH file (this may take a while)..."
 TMP_FILTERED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_filtered.osm.pbf"
 TMP_SORTED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_sorted.osm.pbf"
 
+# Bbox des Alpes françaises (Ouest, Sud, Est, Nord)
+# Approximation: 5.0, 44.0, 7.5, 46.5
+ALPS_BBOX="5.0,44.0,7.5,46.5"
+
 # Extraire les relations avec type=route ET route=hiking
 # La syntaxe osmium tags-filter : r/ pour relations, puis les tags séparés
 # Pour avoir type=route ET route=hiking, on utilise deux filtres séparés
+echo "   => Filtering hiking routes by tags..."
 if ! osmium tags-filter "$OSH_FILE" r/type=route r/route=hiking -o "$TMP_FILTERED" --overwrite 2>&1; then
 	echo "   ⚠️  Error extracting relations from OSH file"
 	rm -f "$TMP_FILTERED" "$TMP_SORTED"
@@ -404,37 +596,50 @@ if [ ! -f "$TMP_FILTERED" ] || [ ! -s "$TMP_FILTERED" ]; then
 	exit 0
 fi
 
-# Vérifier d'abord si le fichier filtré contient des relations
-# Utiliser osmium fileinfo pour vérifier le contenu
-RELATION_COUNT=$(osmium fileinfo "$TMP_FILTERED" --no-progress 2>/dev/null | grep -i "relation" | grep -oE '[0-9]+' | head -1 || echo "0")
-if [ "$RELATION_COUNT" = "0" ] || [ -z "$RELATION_COUNT" ]; then
-	echo "   ⚠️  No relations found in filtered file (type=route and route=hiking)"
-	echo "   ℹ️  This is normal if there are no hiking routes in the OSH file for this region"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED"
-	exit 0
-fi
-echo "   => Found $RELATION_COUNT relations in filtered file"
-
-# Trier le fichier pour qu'il soit dans le bon ordre (nodes, ways, relations)
-echo "   => Sorting relations file..."
-if ! osmium sort "$TMP_FILTERED" -o "$TMP_SORTED" --overwrite 2>&1; then
-	echo "   ⚠️  Error sorting relations file"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED"
+# Convertir le fichier OSH filtré en OSM (dernière version) avant extraction par bbox
+# Cela évite le problème de tri et réduit la taille du fichier
+echo "   => Converting OSH to OSM (latest version)..."
+TMP_OSM_BEFORE_BBOX="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_before_bbox.osm.pbf"
+future_date=$(date -u -d "+10 years" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "2099-12-31T23:59:59Z")
+if ! osmium time-filter "$TMP_FILTERED" "$future_date" -O -o "$TMP_OSM_BEFORE_BBOX" -f osm.pbf 2>&1; then
+	echo "   ⚠️  Error converting OSH to OSM"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_RELATIONS"
 	exit 1
 fi
 
-# Convertir le PBF trié en JSON pour traitement
-echo "   => Converting to JSON format..."
-if ! osmium export "$TMP_SORTED" -o "$TMP_RELATIONS" --overwrite 2>&1; then
+# Extraire uniquement les relations dans la bbox des Alpes françaises
+# Utiliser complete_ways pour inclure les ways complètes qui traversent la bbox
+echo "   => Extracting relations within French Alps bbox ($ALPS_BBOX)..."
+TMP_OSM="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_latest.osm.pbf"
+if ! osmium extract --bbox "$ALPS_BBOX" -s complete_ways "$TMP_OSM_BEFORE_BBOX" -o "$TMP_OSM" --overwrite 2>&1; then
+	echo "   ⚠️  Error extracting by bbox"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
+	exit 1
+fi
+
+# Vérifier d'abord si le fichier filtré par bbox contient des relations
+# Utiliser osmium fileinfo pour vérifier le contenu
+RELATION_COUNT=$(osmium fileinfo "$TMP_OSM" --extended --no-progress 2>/dev/null | grep -i "relation" | grep -oE '[0-9]+' | head -1 || echo "0")
+if [ "$RELATION_COUNT" = "0" ] || [ -z "$RELATION_COUNT" ]; then
+	echo "   ⚠️  No relations found in bbox-filtered file (type=route and route=hiking in French Alps)"
+	echo "   ℹ️  This is normal if there are no hiking routes in the French Alps region"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED"
+	exit 0
+fi
+echo "   => Found $RELATION_COUNT relations in French Alps bbox"
+
+# Convertir le PBF OSM en JSON pour traitement
+echo "   => Converting to JSON format (this may take a while)..."
+if ! osmium export "$TMP_OSM" -o "$TMP_RELATIONS" --overwrite 2>&1; then
 	echo "   ⚠️  Error converting PBF to JSON"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
 	exit 1
 fi
 
 # Vérifier que le fichier JSON existe et n'est pas vide
 if [ ! -f "$TMP_RELATIONS" ] || [ ! -s "$TMP_RELATIONS" ]; then
 	echo "   ⚠️  JSON file is empty or missing"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS"
 	exit 0
 fi
 
@@ -447,7 +652,7 @@ fi
 if [ "$ELEMENT_COUNT" = "0" ]; then
 	echo "   ⚠️  No relations found in JSON file (format may be different)"
 	echo "   ℹ️  File size: $(wc -c < "$TMP_RELATIONS" 2>/dev/null || echo 0) bytes"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS"
 	exit 0
 fi
 echo "   => Found $ELEMENT_COUNT relations in JSON file"
@@ -471,49 +676,122 @@ async function processHikingRoutes() {
 			process.exit(1);
 		}
 		
-		const fileContent = fs.readFileSync(filePath, 'utf8');
-		if (!fileContent || fileContent.trim().length === 0) {
-			console.error('   ❌ Relations file is empty');
-			process.exit(1);
+		// Traitement en streaming avec traitement par chunks
+		// Utiliser un buffer et parser les objets JSON au fur et à mesure
+		const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 1024 * 1024 });
+		
+		let buffer = '';
+		let braceDepth = 0;
+		let inString = false;
+		let escapeNext = false;
+		let currentObj = '';
+		let relations = [];
+		let relationCount = 0;
+		
+		await new Promise((resolve, reject) => {
+			stream.on('data', (chunk) => {
+				buffer += chunk;
+				
+				for (let i = 0; i < buffer.length; i++) {
+					const char = buffer[i];
+					
+					if (escapeNext) {
+						currentObj += char;
+						escapeNext = false;
+						continue;
+					}
+					
+					if (char === '\\\\') {
+						escapeNext = true;
+						currentObj += char;
+						continue;
+					}
+					
+					if (char === '"' && !escapeNext) {
+						inString = !inString;
+						currentObj += char;
+						continue;
+					}
+					
+					if (inString) {
+						currentObj += char;
+						continue;
+					}
+					
+					if (char === '{') {
+						if (braceDepth === 0) {
+							currentObj = '{';
+						} else {
+							currentObj += char;
+						}
+						braceDepth++;
+					} else if (char === '}') {
+						currentObj += char;
+						braceDepth--;
+						
+						if (braceDepth === 0) {
+							try {
+								const obj = JSON.parse(currentObj);
+								if (obj.type === 'relation') {
+									relations.push(obj);
+									relationCount++;
+									if (relationCount % 100 === 0) {
+										console.log(\`   => Processing... \${relationCount} relations found so far\`);
+									}
+									// Traiter immédiatement si on a assez de relations pour éviter la surcharge mémoire
+									if (relations.length >= 50) {
+										processBatch(relations);
+										relations = [];
+									}
+								}
+							} catch (e) {
+								// Ignorer les erreurs de parsing
+							}
+							currentObj = '';
+						}
+					} else if (braceDepth > 0) {
+						currentObj += char;
+					}
+				}
+				
+				// Garder seulement la partie non traitée du buffer
+				if (braceDepth === 0) {
+					buffer = '';
+				} else {
+					// Garder la partie en cours de traitement
+					buffer = currentObj;
+					currentObj = '';
+				}
+			});
+			
+			stream.on('end', () => {
+				resolve();
+			});
+			
+			stream.on('error', (err) => {
+				reject(err);
+			});
+		});
+		
+		// Traiter les dernières relations
+		if (relations.length > 0) {
+			processBatch(relations);
 		}
 		
-		let data;
-		try {
-			data = JSON.parse(fileContent);
-		} catch (parseError) {
-			console.error('   ❌ Failed to parse JSON from osmium export:', parseError.message);
-			console.error('   First 200 chars of response:', fileContent.substring(0, 200));
-			process.exit(1);
-		}
-		
-		// osmium export génère un tableau d'objets OSM directement, pas un objet avec "elements"
-		// Le format est soit un tableau, soit un objet avec "elements" (selon le format)
-		let relations;
-		if (Array.isArray(data)) {
-			// Format OSM JSON standard : tableau d'objets
-			relations = data.filter(el => el.type === 'relation');
-		} else if (data.elements && Array.isArray(data.elements)) {
-			// Format Overpass : objet avec propriété "elements"
-			relations = data.elements.filter(el => el.type === 'relation');
-		} else {
-			console.error('   ❌ Unexpected JSON format from osmium export');
-			console.error('   Data type:', typeof data);
-			process.exit(1);
-		}
-		
-		if (relations.length === 0) {
+		if (relationCount === 0) {
 			console.log('   ⚠️  No relations found in file');
 			await pool.end();
 			process.exit(0);
 		}
 		
-		console.log(\`   => Found \${relations.length} hiking routes to process\`);
+		console.log(\`   => Found \${relationCount} hiking routes total\`);
 		
 		const today = new Date().toISOString().split('T')[0] + 'T23:59:59Z';
 		let processed = 0;
 		let errors = 0;
 		
-		for (const rel of relations) {
+		async function processBatch(relationsBatch) {
+			for (const rel of relationsBatch) {
 			try {
 				const osmId = rel.id;
 				const name = rel.tags?.name || null;
@@ -545,9 +823,10 @@ async function processHikingRoutes() {
 				console.error(\`   ⚠️  Error processing relation \${rel.id}: \${relError.message}\`);
 				errors++;
 			}
+			}
 		}
 		
-		console.log(\`   => Processed \${processed} hiking routes successfully\`);
+		console.log(\`   => Processed \${relationCount} hiking routes successfully\`);
 		if (errors > 0) {
 			console.log(\`   ⚠️  \${errors} relations had errors\`);
 		}
@@ -565,7 +844,7 @@ processHikingRoutes();
 NODEJS
 
 # Nettoyer les fichiers temporaires
-rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
+rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
 `;
 
 script += `

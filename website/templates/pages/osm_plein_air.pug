@@ -78,7 +78,11 @@ block content
 				document.getElementById('route-details-title').textContent = route ? (route.name || "#{__('Itinéraire')} " + routeId) : "#{__('Itinéraire')} " + routeId;
 				document.getElementById('route-details-content').innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div></div>';
 				
-				$('#route-details-modal').modal('show');
+				$('#route-details-modal').modal({
+					show: true,
+					backdrop: true,
+					keyboard: true
+				});
 				
 				// Fetch member history and breaks
 				Promise.all([

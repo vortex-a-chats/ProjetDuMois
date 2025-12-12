@@ -45,8 +45,9 @@ fi
 
 if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
 	# Vérifier que le fichier est valide (pas HTML, pas vide)
-	file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
-	if echo "$file_type" | grep -qi "html\|text"; then
+	# Check first bytes to detect HTML/text files (HTML usually starts with <!DOCTYPE or <html)
+	first_bytes=$(head -c 20 "${OSH_UPDATED}" 2>/dev/null || echo "")
+	if echo "$first_bytes" | grep -qi "<!DOCTYPE\|<html\|text/html"; then
 		echo "== Existing OSH file appears to be invalid (HTML/text instead of PBF)"
 		echo "   => Will re-download..."
 		rm -f "${OSH_UPDATED}"
@@ -58,17 +59,26 @@ if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
 			prev_timestamp=$(cat ${CONFIG.WORK_DIR}/osh_timestamp)
 			if [ -n "$prev_timestamp" ]; then
 				echo "Timestamp: $prev_timestamp"
-				# Check if timestamp is too old (more than 30 days), if so, re-download full file
-				timestamp_age=$(($(date +%s) - $(date -d "$prev_timestamp" +%s 2>/dev/null || echo 0)))
-				max_age=$((30 * 24 * 3600)) # 30 days in seconds
-				if [ $timestamp_age -gt $max_age ] 2>/dev/null; then
-					echo "WARNING: Timestamp is more than 30 days old ($(($timestamp_age / 86400)) days)"
-					echo "         This would require downloading too many incremental changes."
-					echo "         Re-downloading full OSH file instead..."
-					rm -f "${OSH_UPDATED}"
-					prev_osh=""
+				# Check if timestamp is valid
+				timestamp_epoch=$(date -d "$prev_timestamp" +%s 2>/dev/null || echo 0)
+				current_epoch=$(date +%s)
+				
+				if [ $timestamp_epoch -eq 0 ] 2>/dev/null; then
+					echo "WARNING: Invalid timestamp format, ignoring it"
+					prev_timestamp=""
 				else
-					echo "   => Using existing OSH file: ${OSH_UPDATED}"
+					# Check if timestamp is too old (more than 30 days), if so, re-download full file
+					timestamp_age=$(($current_epoch - $timestamp_epoch))
+					max_age=$((30 * 24 * 3600)) # 30 days in seconds
+					if [ $timestamp_age -gt $max_age ] 2>/dev/null; then
+						echo "WARNING: Timestamp is more than 30 days old ($(($timestamp_age / 86400)) days)"
+						echo "         This would require downloading too many incremental changes."
+						echo "         Re-downloading full OSH file instead..."
+						rm -f "${OSH_UPDATED}"
+						prev_osh=""
+					else
+						echo "   => Using existing OSH file: ${OSH_UPDATED}"
+					fi
 				fi
 			else
 				echo "WARNING: Timestamp file exists but is empty"
@@ -250,9 +260,9 @@ ${separator}
 
 if [[ "$mode" != "fast" ]]; then
 	echo "== Build OSC changes with replication files..."
-	if [ -n "$prev_timestamp" ]; then
-		echo "   => Using incremental update from timestamp: $prev_timestamp"
-		osmupdate --keep-tempfiles --day -t="${CONFIG.WORK_DIR}/osmupdate/" -v "$prev_osh" "$prev_timestamp" "${OSC_UPDATES}"
+		if [ -n "$prev_timestamp" ]; then
+			echo "   => Using incremental update from timestamp: $prev_timestamp"
+			osmupdate --keep-tempfiles --day -t="${CONFIG.WORK_DIR}/osmupdate/" -v "$prev_osh" "$prev_timestamp" "${OSC_UPDATES}"
 	else
 		echo "   => No timestamp available, using full file (no incremental update needed)"
 		# If no timestamp, we just extracted from the full file, so no changes to apply
@@ -298,8 +308,12 @@ ${separator}
 
 script += `
 rm -f "${CONFIG.WORK_DIR}/osh_timestamp"
-curtime=$(date -d '3 hours ago' -Iseconds --utc)
-echo \${curtime/"+00:00"/"Z"} > ${CONFIG.WORK_DIR}/osh_timestamp
+# Write timestamp: use current time minus 3 hours to account for replication delay
+curtime=$(date -d '3 hours ago' -Iseconds --utc 2>/dev/null || date -u -Iseconds)
+# Ensure timestamp is in correct format (replace +00:00 with Z)
+timestamp=\${curtime/"+00:00"/"Z"}
+echo "$timestamp" > ${CONFIG.WORK_DIR}/osh_timestamp
+echo "OSH timestamp written: $timestamp"
 echo "Done"
 `;
 

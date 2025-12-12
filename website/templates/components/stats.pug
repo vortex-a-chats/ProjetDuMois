@@ -73,7 +73,7 @@ div.row
 						li= __("Les villes sont classées par ordre décroissant de leur qualité moyenne")
 					p.text-muted= __("Les données sont mises à jour quotidiennement.")
 
-	div.modal.fade#podium-cities-progress-modal(tabindex="-1" role="dialog" style="top: 50px;")
+	div.modal.fade#podium-cities-progress-modal(tabindex="-1" role="dialog")
 		div.modal-dialog(role="document")
 			div.modal-content
 				div.modal-header
@@ -123,32 +123,146 @@ div.row
 			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
 				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
 
-	div.col-lg-6.mb-2#stats-chart-notes-container
-		h3= __("Notes")
-		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
-		canvas#stats-chart-notes.w-100(height="300")
+	div.col-12.mb-4#stats-deletions-container.d-none
+		h3= __("Suppressions")
+		p.text-muted.small= __("Ce graphique montre l'évolution du nombre de suppressions d'objets du projet.")
+		div.d-flex.justify-content-between.align-items-center.mb-2
+			span.small.text-muted= __("Utilisez la molette de la souris pour zoomer, cliquez-glissez pour déplacer")
+			button.btn.btn-sm.btn-outline-secondary#deletions-chart-reset-zoom(type="button" style="display: none;")
+				i.fa.fa-home.mr-1
+				= __("Réinitialiser zoom")
+		div(style="position: relative;")
+			div.spinner-charts-deletions.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+			canvas#stats-deletions-chart.w-100(height="300")
+			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+		
+		div.mt-3#stats-deletions-changesets
+			h5= __("Changesets avec suppressions")
+			p.text-muted.small.mb-2= __("Note : Le Changeset ID peut être absent pour les suppressions anciennes, car cette information n'était pas toujours enregistrée dans l'historique OSM.")
+			div.table-responsive(style="max-height: 400px; overflow-y: auto;")
+				table.table.table-sm.table-striped
+					thead.sticky-top.thead-light
+						tr
+							th= __("Date")
+							th= __("Utilisateur")
+							th= __("Changeset ID")
+							th= __("Nombre de suppressions")
+							th= __("Actions")
+					tbody#deletions-changesets-list
+						tr
+							td(colspan="5" class="text-center")
+								div.spinner-border.spinner-border-sm.text-primary(role="status")
 
-	div.col-lg-6.mb-2#stats-chart-keys-container
-		h3= __("Clés fréquentes")
-		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
-		canvas#stats-chart-keys.w-100(height="300")
+//- Modal explaining how statistics are calculated
+div.modal.fade#stats-explanation-modal(tabindex="-1" role="dialog")
+	div.modal-dialog.modal-lg(role="document")
+		div.modal-content
+			div.modal-header
+				h5.modal-title= __("Comment sont calculées les statistiques ?")
+				button.close(type="button" data-dismiss="modal" aria-label="Close")
+					span(aria-hidden="true") &times;
+			div.modal-body
+				div
+					h6= __("Temps estimé (ETA)")
+					p= __("Le temps estimé pour compléter les objets restants est calculé en divisant le nombre d'objets restants par le taux d'ajout quotidien moyen.")
+					ul
+						li= __("Le taux quotidien est calculé à partir des ajouts sur les 6 derniers mois (priorité), ou sur 30 jours, 7 jours, ou 12 mois selon les données disponibles.")
+						li= __("Formule : ETA (jours) = Objets restants ÷ Taux quotidien moyen")
+						li= __("Pour les tâches Osmose \"à ajouter\", l'estimation est basée uniquement sur les 6 derniers mois de progression.")
+					
+					h6.mt-4= __("Objets restants")
+					p= __("Le nombre d'objets restants est calculé à partir de l'objectif défini dans la configuration du projet (statistics.total_expected, statistics.to_integrate ou statistics.target).")
+					ul
+						li= __("Formule : Objets restants = Objectif total - Nombre actuel d'objets dans OSM")
+					
+					h6.mt-4= __("Objets restants par personne")
+					p= __("Cette statistique répartit le travail restant entre tous les contributeurs.")
+					ul
+						li= __("Formule : Restant par personne = Objets restants ÷ Nombre de contributeurs")
+					
+					h6.mt-4= __("Contributeurs par commune")
+					p= __("Cette statistique donne une idée de la répartition géographique des contributeurs.")
+					ul
+						li= __("Formule : Contributeurs par commune = Nombre de contributeurs ÷ 34 874 (nombre de communes en France)")
+						li= __("Cette estimation est basée sur le nombre total de communes INSEE en France.")
+					
+					h6.mt-4= __("Objets intégrés par commune")
+					p= __("Cette statistique donne une idée de la répartition géographique des objets cartographiés.")
+					ul
+						li= __("Formule : Objets par commune = Nombre total d'objets ÷ 34 874 (nombre de communes en France)")
+					
+					h6.mt-4= __("Ajouts sur différentes périodes")
+					p= __("Les statistiques d'ajouts sont calculées en comparant le nombre d'objets à deux dates différentes :")
+					ul
+						li= __("7 jours : différence entre aujourd'hui et il y a 7 jours")
+						li= __("30 jours : différence entre aujourd'hui et il y a 30 jours")
+						li= __("6 mois (180 jours) : différence entre aujourd'hui et il y a 180 jours")
+						li= __("12 mois (365 jours) : différence entre aujourd'hui et il y a 365 jours")
+					
+					h6.mt-4= __("Note importante")
+					p.text-muted.small= __("Ces estimations sont basées sur les données historiques et peuvent varier selon l'activité future des contributeurs. Elles servent d'indicateur et non de prédiction exacte.")
 
-	//- Keys list
-	div.col-lg-6.mb-2
-		h3= __("Clés les plus utilisées")
-		ul#stats-keys-list.list-group
-		button#stats-keys-show-more.btn.btn-sm.btn-outline-primary.mt-2.d-none= __("Afficher plus")
+//- Modal explaining the difference between "added" and "total in OSM"
+div.modal.fade#stats-count-difference-modal(tabindex="-1" role="dialog")
+	div.modal-dialog.modal-lg(role="document")
+		div.modal-content
+			div.modal-header
+				h5.modal-title= __("Différence entre 'objets ajoutés' et 'au total dans OSM'")
+				button.close(type="button" data-dismiss="modal" aria-label="Close")
+					span(aria-hidden="true") &times;
+			div.modal-body
+				div
+					h6= __("Objets ajoutés 🧭")
+					p= __("Ce nombre représente la différence entre le nombre d'objets actuellement dans OSM et le nombre d'objets qui existaient au début du projet (date de début).")
+					ul
+						li= __("Il compte uniquement les objets ajoutés pendant la période du projet")
+						li= __("Formule : Objets ajoutés = Nombre actuel - Nombre au début du projet")
+						li= __("Ce chiffre peut être négatif si des objets ont été supprimés en plus grand nombre que les ajouts")
+					
+					h6.mt-4= __("Au total dans OSM 🗺️")
+					p= __("Ce nombre représente le nombre total d'objets correspondant au filtre du projet qui existent actuellement dans OpenStreetMap, quelle que soit leur date de création.")
+					ul
+						li= __("Il inclut tous les objets qui correspondent aux critères du projet, même ceux créés avant le début du projet")
+						li= __("Il inclut aussi les objets créés après la fin du projet")
+						li= __("Ce chiffre reflète l'état actuel de la base de données OSM")
+					
+					h6.mt-4= __("Exemple")
+					p= __("Si un projet commence le 1er janvier avec 100 objets existants, et qu'aujourd'hui il y a 500 objets au total dans OSM :")
+					ul
+						li= __("Objets ajoutés = 500 - 100 = 400 objets")
+						li= __("Au total dans OSM = 500 objets")
+					
+					div.alert.alert-info.mt-3
+						i.fa.fa-info-circle.mr-2
+						= __("Note : Les objets supprimés après leur création ne sont pas comptabilisés dans 'au total dans OSM', mais peuvent affecter le calcul de 'objets ajoutés' si la suppression a eu lieu pendant la période du projet.")
 
-	//- EV charging sockets (project specific)
-	div.col-lg-6.mb-2.d-none
-		h3= __("Borne de recharge - prises recensées")
-		ul#stats-sockets.list-group
+div.col-lg-6.mb-2#stats-chart-notes-container
+	h3= __("Notes")
+	div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+	canvas#stats-chart-notes.w-100(height="300")
 
-	div.col-12.mb-2#stats-chart-quality-container
-		h3= __("Qualité de complétion")
-		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
-		canvas#stats-chart-quality.w-100(height="300")
-		div#stats-quality-info.mt-3
+div.col-lg-6.mb-2#stats-chart-keys-container
+	h3= __("Clés fréquentes")
+	div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+	canvas#stats-chart-keys.w-100(height="300")
+
+//- Keys list
+div.col-lg-6.mb-2
+	h3= __("Clés les plus utilisées")
+	ul#stats-keys-list.list-group
+	button#stats-keys-show-more.btn.btn-sm.btn-outline-primary.mt-2.d-none= __("Afficher plus")
+
+//- EV charging sockets (project specific)
+div.col-lg-6.mb-2.d-none
+	h3= __("Borne de recharge - prises recensées")
+	ul#stats-sockets.list-group
+
+div.col-12.mb-2#stats-chart-quality-container
+	h3= __("Qualité de complétion")
+	div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+	canvas#stats-chart-quality.w-100(height="300")
+	div#stats-quality-info.mt-3
 
 script.
 	const projectDays = !{JSON.stringify(days)};
@@ -172,7 +286,7 @@ script.
 		.then(res => {
 			const blocks = document.getElementById("stats-blocks");
 			blocks.innerHTML = '';
-			const addBlock = (title, subtitle) => {
+			const addBlock = (title, subtitle, extraInfo, infoButton) => {
 				const b = document.createElement("div");
 				b.classList.add("col-md-4", "mb-2");
 
@@ -180,27 +294,79 @@ script.
 				sb.classList.add("p-4", "no-gutters", "border", "rounded", "overflow-hidden", "flex-md-row", "shadow-sm", "position-relative", "h-100");
 				b.appendChild(sb);
 
+				const headerDiv = document.createElement("div");
+				headerDiv.classList.add("d-flex", "justify-content-between", "align-items-start", "mb-2");
+				
 				const t = document.createElement("h3");
 				t.classList.add("mb-0");
 				t.appendChild(document.createTextNode(title));
-				sb.appendChild(t);
+				headerDiv.appendChild(t);
+				
+				if (infoButton) {
+					const infoBtn = document.createElement("button");
+					infoBtn.classList.add("btn", "btn-sm", "btn-link", "p-0", "ml-2");
+					infoBtn.style.cssText = "padding: 0; vertical-align: baseline; line-height: 1;";
+					infoBtn.setAttribute("type", "button");
+					infoBtn.setAttribute("data-toggle", "modal");
+					infoBtn.setAttribute("data-target", infoButton.target);
+					const icon = document.createElement("i");
+					icon.classList.add("fa", "fa-info-circle");
+					infoBtn.appendChild(icon);
+					headerDiv.appendChild(infoBtn);
+				}
+				
+				sb.appendChild(headerDiv);
 
 				const st = document.createElement("p");
 				st.classList.add("card-text", "mb-auto");
 				st.appendChild(document.createTextNode(subtitle));
 				sb.appendChild(st);
+				
+				if (extraInfo) {
+					const extra = document.createElement("p");
+					extra.classList.add("card-text", "text-muted", "small", "mt-2", "mb-0");
+					extra.appendChild(document.createTextNode(extraInfo));
+					sb.appendChild(extra);
+				}
 
 				blocks.appendChild(b);
 			};
 
 			// Blocks for small stats
-			if(res.added) { addBlock(numberFormat.format(res.added), "#{title.toLowerCase()} ajoutés 🧭"); }
-			if(res.count) { addBlock(numberFormat.format(res.count), "#{title.toLowerCase()} au total dans OSM 🗺️"); }
+			if(res.added) {
+				let dateInfo = "";
+				if(res.projectStartDate && res.projectEndDate) {
+					const startDate = new Date(res.projectStartDate + 'T00:00:00Z');
+					const endDate = new Date(res.projectEndDate + 'T23:59:59Z');
+					dateInfo = "#{__("Période")}: " + startDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) + " - " + endDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+				}
+				addBlock(numberFormat.format(res.added), "#{title.toLowerCase()} ajoutés 🧭", dateInfo);
+			}
+			if(res.count) {
+				addBlock(
+					numberFormat.format(res.count),
+					"#{title.toLowerCase()} au total dans OSM 🗺️",
+					null,
+					{ target: "#stats-count-difference-modal" }
+				);
+			}
 			if(res.tasksSolved !== undefined) { addBlock(numberFormat.format(res.tasksSolved), "#{statistics.osmose_tasks} ✅"); }
 			addBlock(numberFormat.format(res.nbContributors), "#{__("personnes ayant contribué")} 👥");
 			if(res.addedWeek != null) { addBlock(numberFormat.format(res.addedWeek), "#{__("Ajouts sur 7 jours")} 📆"); }
 			if(res.added30d != null) { addBlock(numberFormat.format(res.added30d), "#{__("Ajouts sur 30 jours")} 🗓️"); }
 			if(res.added180d != null) { addBlock(numberFormat.format(res.added180d), "#{__("Ajouts sur 6 mois")} 📈"); }
+			
+			// Osmose ETA block (for "à ajouter" tasks)
+			if(res.osmoseRemaining != null && res.osmoseRemaining > 0) {
+				if(res.osmoseEtaDays != null && res.osmoseEtaDays > 0) {
+					const etaText = res.osmoseEtaDays < 365 
+						? res.osmoseEtaDays + " " + (res.osmoseEtaDays > 1 ? "#{__("jours")}" : "#{__("jour")}")
+						: Math.round(res.osmoseEtaDays / 365 * 10) / 10 + " " + (Math.round(res.osmoseEtaDays / 365 * 10) / 10 > 1 ? "#{__("ans")}" : "#{__("an")}");
+					addBlock(etaText, "#{__("Temps estimé pour compléter les tâches Osmose à ajouter")} ⏱️");
+				} else {
+					addBlock("#{__("Indéterminé")}", "#{__("Temps estimé pour compléter les tâches Osmose à ajouter")} ⏱️");
+				}
+			}
 			if(res.added365d != null) { addBlock(numberFormat.format(res.added365d), "#{__("Ajouts sur 12 mois")} 🚀"); }
 			if(res.avgPerContributor != null) { addBlock(res.avgPerContributor.toFixed(1), "#{__("Objets ajoutés / personne (moy.)")} 🧑‍💻"); }
 			if(res.remaining != null) { addBlock(numberFormat.format(res.remaining), "#{__("Objets restants (estim.)")} ⏳"); }
@@ -839,13 +1005,29 @@ script.
 					const infoCard = document.createElement("div");
 					infoCard.classList.add("card", "mt-3");
 					
-					const cardBody = document.createElement("div");
-					cardBody.classList.add("card-body");
+					const cardHeader = document.createElement("div");
+					cardHeader.classList.add("card-header", "d-flex", "justify-content-between", "align-items-center");
+					cardHeader.style.cursor = "pointer";
+					cardHeader.id = "quality-current-toggle";
 					
 					const title = document.createElement("h5");
-					title.classList.add("card-title");
+					title.classList.add("mb-0");
 					title.appendChild(document.createTextNode("#{__("État actuel de la qualité")}"));
-					cardBody.appendChild(title);
+					cardHeader.appendChild(title);
+					
+					const icon = document.createElement("i");
+					icon.classList.add("fa", "fa-chevron-down", "ml-auto");
+					icon.id = "quality-current-icon";
+					cardHeader.appendChild(icon);
+					
+					infoCard.appendChild(cardHeader);
+					
+					const collapseDiv = document.createElement("div");
+					collapseDiv.classList.add("collapse");
+					collapseDiv.id = "quality-current-collapse";
+					
+					const cardBody = document.createElement("div");
+					cardBody.classList.add("card-body");
 					
 					const statsList = document.createElement("ul");
 					statsList.classList.add("list-unstyled", "mb-0");
@@ -883,8 +1065,32 @@ script.
 					}
 					
 					cardBody.appendChild(statsList);
-					infoCard.appendChild(cardBody);
+					collapseDiv.appendChild(cardBody);
+					infoCard.appendChild(collapseDiv);
 					qualityInfo.appendChild(infoCard);
+					
+					// Gestionnaire pour le collapse
+					const toggle = document.getElementById('quality-current-toggle');
+					const collapse = document.getElementById('quality-current-collapse');
+					const collapseIcon = document.getElementById('quality-current-icon');
+					
+					if (toggle && collapse && collapseIcon) {
+						toggle.addEventListener('click', function() {
+							const isExpanded = collapse.classList.contains('show');
+							
+							if (isExpanded) {
+								collapse.classList.remove('show');
+								collapse.style.display = 'none';
+								collapseIcon.classList.remove('fa-chevron-up');
+								collapseIcon.classList.add('fa-chevron-down');
+							} else {
+								collapse.classList.add('show');
+								collapse.style.display = 'block';
+								collapseIcon.classList.remove('fa-chevron-down');
+								collapseIcon.classList.add('fa-chevron-up');
+							}
+						});
+					}
 				}
 			}
 			else {
@@ -1166,6 +1372,211 @@ script.
 					console.error('Error loading zone podiums:', err);
 					document.getElementById("podium-cities-quality").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
 					document.getElementById("podium-cities-progress").innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+				});
+			
+			// Load deletions statistics
+			fetch('/projects/' + projectId + '/deletions')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
+					}
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.chart || !Array.isArray(data.chart) || data.chart.length === 0) {
+						// Hide deletions container if no data
+						document.getElementById("stats-deletions-container").classList.add("d-none");
+						return;
+					}
+					
+					// Show deletions container
+					document.getElementById("stats-deletions-container").classList.remove("d-none");
+					const spinner = document.querySelector("#stats-deletions-container .spinner-charts-deletions");
+					if (spinner) spinner.classList.add("d-none");
+					
+					// Display deletions chart as histogram with zoom
+					const ctxDeletions = document.getElementById("stats-deletions-chart").getContext("2d");
+					const myChartDeletions = new Chart(ctxDeletions, {
+						type: "bar",
+						data: {
+							datasets: [{
+								label: "#{__('Nombre de suppressions')}",
+								data: data.chart,
+								backgroundColor: "rgba(211, 47, 47, 0.6)",
+								borderColor: "#D32F2F",
+								borderWidth: 1
+							}]
+						},
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+									},
+									barThickness: 'flex',
+									categoryPercentage: 0.8,
+									barPercentage: 0.9
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true,
+										callback: function(value) {
+											return numberFormat.format(value);
+										}
+									}
+								}]
+							},
+							legend: {
+								display: true,
+								position: 'bottom'
+							},
+							plugins: {
+								zoom: {
+									pan: {
+										enabled: true,
+										mode: 'x',
+										speed: 0.5
+									},
+									zoom: {
+										enabled: true,
+										mode: 'x',
+										speed: 0.1,
+										wheel: {
+											enabled: true,
+											speed: 0.1
+										},
+										pinch: {
+											enabled: true
+										}
+									}
+								}
+							}
+						}
+					});
+					
+					// Handle zoom reset button
+					const resetZoomBtn = document.getElementById("deletions-chart-reset-zoom");
+					if (resetZoomBtn) {
+						myChartDeletions.resetZoom = function() {
+							Chart.helpers.each(myChartDeletions.data.datasets, function(dataset) {
+								myChartDeletions.resetZoom();
+							});
+						};
+						resetZoomBtn.addEventListener('click', function() {
+							myChartDeletions.resetZoom();
+							resetZoomBtn.style.display = 'none';
+						});
+						
+						// Show reset button when zoomed
+						myChartDeletions.options.onZoom = function() {
+							resetZoomBtn.style.display = 'block';
+						};
+					}
+					
+					// Display changesets list
+					if (data.changesets && data.changesets.length > 0) {
+						const changesetsList = document.getElementById("deletions-changesets-list");
+						changesetsList.innerHTML = '';
+						
+						// Debug: log first changeset to see structure
+						if (data.changesets.length > 0) {
+							console.log('First changeset data:', data.changesets[0]);
+						}
+						
+						data.changesets.forEach(changeset => {
+							const tr = document.createElement("tr");
+							
+							// Date
+							const tdDate = document.createElement("td");
+							const date = new Date(changeset.date);
+							tdDate.textContent = date.toLocaleDateString('fr-FR');
+							tr.appendChild(tdDate);
+							
+							// Username with link to osm.org
+							const tdUser = document.createElement("td");
+							if (changeset.osm_user_url) {
+								const userLink = document.createElement("a");
+								userLink.href = changeset.osm_user_url;
+								userLink.target = "_blank";
+								userLink.rel = "noopener noreferrer";
+								userLink.textContent = changeset.username;
+								tdUser.appendChild(userLink);
+							} else if (changeset.userid) {
+								const userLink = document.createElement("a");
+								userLink.href = '/users/' + encodeURIComponent(changeset.username);
+								userLink.textContent = changeset.username;
+								tdUser.appendChild(userLink);
+							} else {
+								tdUser.textContent = changeset.username;
+							}
+							tr.appendChild(tdUser);
+							
+							// Changeset ID - always add this column
+							const tdChangesetId = document.createElement("td");
+							if (changeset.changeset_id != null && changeset.changeset_id !== undefined) {
+								tdChangesetId.textContent = String(changeset.changeset_id);
+								tdChangesetId.style.fontFamily = "monospace";
+							} else {
+								tdChangesetId.textContent = '-';
+								tdChangesetId.classList.add("text-muted");
+							}
+							tr.appendChild(tdChangesetId);
+							
+							// Deletion count
+							const tdCount = document.createElement("td");
+							tdCount.textContent = numberFormat.format(changeset.deletion_count);
+							tr.appendChild(tdCount);
+							
+							// Actions (Achavi and OSM links)
+							const tdActions = document.createElement("td");
+							tdActions.style.whiteSpace = "nowrap";
+							
+							// Achavi link - ensure changeset_id is in URL if available
+							const achaviLink = document.createElement("a");
+							if (changeset.changeset_id) {
+								// Use changeset ID directly in URL
+								achaviLink.href = 'https://overpass-api.de/achavi/?changeset=' + changeset.changeset_id;
+							} else {
+								// Fallback to the URL from API
+								achaviLink.href = changeset.achavi_url;
+							}
+							achaviLink.target = "_blank";
+							achaviLink.rel = "noopener noreferrer";
+							achaviLink.classList.add("btn", "btn-sm", "btn-outline-primary", "mr-1");
+							if (changeset.changeset_id) {
+								achaviLink.innerHTML = '<i class="fa fa-external-link-alt mr-1"></i>#{__("Achavi")} (' + changeset.changeset_id + ')';
+							} else {
+								achaviLink.innerHTML = '<i class="fa fa-external-link-alt mr-1"></i>#{__("Achavi")}';
+							}
+							tdActions.appendChild(achaviLink);
+							
+							// OSM changeset link (if available)
+							if (changeset.osm_changeset_url) {
+								const osmLink = document.createElement("a");
+								osmLink.href = changeset.osm_changeset_url;
+								osmLink.target = "_blank";
+								osmLink.rel = "noopener noreferrer";
+								osmLink.classList.add("btn", "btn-sm", "btn-outline-info");
+								osmLink.innerHTML = '<i class="fa fa-map-marker-alt mr-1"></i>OSM (' + changeset.changeset_id + ')';
+								tdActions.appendChild(osmLink);
+							}
+							
+							tr.appendChild(tdActions);
+							
+							changesetsList.appendChild(tr);
+						});
+					} else {
+						const changesetsList = document.getElementById("deletions-changesets-list");
+						changesetsList.innerHTML = '<tr><td colspan="5" class="text-center text-muted">#{__("Aucun changeset avec suppressions trouvé")}</td></tr>';
+					}
+				})
+				.catch(err => {
+					console.error('Error loading deletions:', err);
+					// Hide deletions container on error
+					document.getElementById("stats-deletions-container").classList.add("d-none");
 				});
 		}
 	};
