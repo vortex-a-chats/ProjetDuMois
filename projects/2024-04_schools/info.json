@@ -4,6 +4,7 @@
   "start_date": "2018-01-01",
   "end_date": "2024-05-01",
   "summary": "La complétude des écoles a besoin de vous. Cartographions ensemble ces lieux dans OpenStreetMap ! #Écoles #ProjetDuMois",
+  "image": "/images/school.svg",
   "links": {
     "osmwiki": " https://wiki.openstreetmap.org/wiki/FR:Projet_du_mois/Écoles"
   },

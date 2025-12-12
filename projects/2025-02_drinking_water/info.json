@@ -24,6 +24,27 @@
   },
   "datasources": [
     {
+      "source": "osmose",
+      "item": "8441",
+      "country": "france*",
+      "name": "Fontaine à compléter",
+      "description": "Cette fontaine existe déjà dans OSM, mais il lui manque des informations (accès, etc.). Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter cette fontaine"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8440",
+      "country": "france*",
+      "name": "Fontaine à ajouter",
+      "description": "Cette fontaine existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-la à OSM.",
+      "buttons": {
+        "add": "Intégrer cette fontaine"
+      }
+    },
+    {
       "source": "notes",
       "name": "Fontaine à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
@@ -52,7 +73,8 @@
     }
   ],
   "statistics": {
-    "count": true
+    "count": true,
+    "osmose_tasks": "fontaines complétées/intégrées"
   },
   "geographic_zone": "France",
   "icon": "/images/projects/drinking_water.png",

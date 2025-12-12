@@ -172,9 +172,8 @@ async function processNotes() {
 		
 		let notesOpen = 0;
 		let notesClosed = 0;
+		const notesByBoundary = new Map(); // Map<boundaryId, {open: number, closed: number}>
 		let buffer = '';
-		let inNoteTag = false;
-		let currentNoteTag = '';
 		
 		// Lire le fichier par chunks pour éviter de charger tout en mémoire
 		const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 64 * 1024 }); // 64KB chunks
@@ -207,7 +206,15 @@ async function processNotes() {
 						// Vérifier si la note est dans la bbox de la France
 						if (!isNaN(lat) && !isNaN(lon) && lat >= 41.0 && lat <= 51.0 && lon >= 2.0 && lon <= 8.0) {
 							// Vérifier le statut (closed si closed_at existe dans les attributs)
-							if (noteTag.includes('closed_at="')) {
+							const isClosed = noteTag.includes('closed_at="');
+							
+							// Stocker la note pour traitement par zone
+							notesByBoundary.set(
+								notesByBoundary.size,
+								{ lat, lon, isClosed }
+							);
+							
+							if (isClosed) {
 								notesClosed++;
 							} else {
 								notesOpen++;
@@ -232,12 +239,114 @@ async function processNotes() {
 		
 		console.log(\`   => Found \${notesOpen} open notes and \${notesClosed} closed notes\`);
 		
-		// Insérer dans la base de données
+		// Insérer dans la base de données (global)
 		const currentDate = process.argv[3];
 		await pool.query(
 			\`INSERT INTO pdm_note_counts_global (ts, open, closed) VALUES (\$1, \$2, \$3) ON CONFLICT (ts) DO UPDATE SET open = EXCLUDED.open, closed = EXCLUDED.closed\`,
 			[\`\${currentDate}T23:59:59Z\`, notesOpen, notesClosed]
 		);
+		
+		// Traiter les notes par zone si pdm_boundary existe
+		console.log('   => Processing notes by boundary...');
+		const boundaryCheck = await pool.query(
+			\`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pdm_boundary') AS exists\`
+		);
+		
+		if (boundaryCheck.rows[0] && boundaryCheck.rows[0].exists) {
+			// Créer une table temporaire pour les notes
+			await pool.query(\`
+				CREATE TEMP TABLE temp_notes (
+					lat FLOAT NOT NULL,
+					lon FLOAT NOT NULL,
+					is_closed BOOLEAN NOT NULL
+				)
+			\`);
+			
+			// Insérer les notes dans la table temporaire par batch
+			const batchSize = 1000;
+			const notesArray = Array.from(notesByBoundary.values());
+			const boundaryCounts = new Map(); // Map<boundaryId, {open: number, closed: number}>
+			
+			for (let i = 0; i < notesArray.length; i += batchSize) {
+				const batch = notesArray.slice(i, i + batchSize);
+				const values = batch.map(note => 
+					\`(\${note.lat}, \${note.lon}, \${note.isClosed})\`
+				).join(', ');
+				
+				await pool.query(\`
+					INSERT INTO temp_notes (lat, lon, is_closed) 
+					VALUES \${values}
+				\`);
+			}
+			
+			// Trouver les zones pour chaque note
+			// On cherche les zones de niveau administratif 4, 6 et 8 (régions, départements, communes)
+			// On prend la zone la plus spécifique (admin_level le plus élevé)
+			const result = await pool.query(\`
+				WITH notes_with_boundaries AS (
+					SELECT DISTINCT ON (tn.lat, tn.lon)
+						tn.lat,
+						tn.lon,
+						tn.is_closed,
+						b.osm_id AS boundary_id
+					FROM temp_notes tn
+					CROSS JOIN LATERAL (
+						SELECT osm_id, admin_level
+						FROM pdm_boundary
+						WHERE admin_level IN (4, 6, 8)
+							AND ST_Within(
+								ST_SetSRID(ST_MakePoint(tn.lon, tn.lat), 4326),
+								ST_Transform(geom, 4326)
+							)
+						ORDER BY admin_level DESC
+						LIMIT 1
+					) b
+				)
+				SELECT boundary_id, is_closed, COUNT(*) as count
+				FROM notes_with_boundaries
+				WHERE boundary_id IS NOT NULL
+				GROUP BY boundary_id, is_closed
+			\`);
+			
+			// Agréger les résultats
+			for (const row of result.rows) {
+				const boundaryId = parseInt(row.boundary_id);
+				if (!boundaryCounts.has(boundaryId)) {
+					boundaryCounts.set(boundaryId, { open: 0, closed: 0 });
+				}
+				const counts = boundaryCounts.get(boundaryId);
+				if (row.is_closed) {
+					counts.closed += parseInt(row.count);
+				} else {
+					counts.open += parseInt(row.count);
+				}
+			}
+			
+			// Nettoyer la table temporaire
+			await pool.query(\`DROP TABLE IF EXISTS temp_notes\`);
+			
+			// Insérer les comptages par zone dans la base de données
+			if (boundaryCounts.size > 0) {
+				const insertPromises = [];
+				for (const [boundaryId, counts] of boundaryCounts.entries()) {
+					insertPromises.push(
+						pool.query(
+							\`INSERT INTO pdm_note_counts_per_boundary (boundary, ts, open, closed) 
+							VALUES (\$1, \$2, \$3, \$4) 
+							ON CONFLICT (boundary, ts) 
+							DO UPDATE SET open = EXCLUDED.open, closed = EXCLUDED.closed\`,
+							[boundaryId, \`\${currentDate}T23:59:59Z\`, counts.open, counts.closed]
+						)
+					);
+				}
+				await Promise.all(insertPromises);
+				console.log(\`   => Notes counts saved for \${boundaryCounts.size} boundaries\`);
+			} else {
+				console.log('   ⚠️  No notes matched to boundaries');
+			}
+		} else {
+			console.log('   ℹ️  pdm_boundary table not found, skipping boundary-based processing');
+		}
 		
 		console.log('   => Notes counts saved to database');
 		await pool.end();
@@ -279,11 +388,32 @@ echo "   => Extracting relations from OSH file (this may take a while)..."
 TMP_FILTERED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_filtered.osm.pbf"
 TMP_SORTED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_sorted.osm.pbf"
 
-if ! osmium tags-filter "$OSH_FILE" r/type=route,route=hiking -o "$TMP_FILTERED" --overwrite 2>&1; then
+# Extraire les relations avec type=route ET route=hiking
+# La syntaxe osmium tags-filter : r/ pour relations, puis les tags séparés
+# Pour avoir type=route ET route=hiking, on utilise deux filtres séparés
+if ! osmium tags-filter "$OSH_FILE" r/type=route r/route=hiking -o "$TMP_FILTERED" --overwrite 2>&1; then
 	echo "   ⚠️  Error extracting relations from OSH file"
 	rm -f "$TMP_FILTERED" "$TMP_SORTED"
 	exit 1
 fi
+
+# Vérifier que le fichier filtré contient bien des données
+if [ ! -f "$TMP_FILTERED" ] || [ ! -s "$TMP_FILTERED" ]; then
+	echo "   ⚠️  Filtered file is empty or missing. No relations with type=route and route=hiking found."
+	rm -f "$TMP_FILTERED" "$TMP_SORTED"
+	exit 0
+fi
+
+# Vérifier d'abord si le fichier filtré contient des relations
+# Utiliser osmium fileinfo pour vérifier le contenu
+RELATION_COUNT=$(osmium fileinfo "$TMP_FILTERED" --no-progress 2>/dev/null | grep -i "relation" | grep -oE '[0-9]+' | head -1 || echo "0")
+if [ "$RELATION_COUNT" = "0" ] || [ -z "$RELATION_COUNT" ]; then
+	echo "   ⚠️  No relations found in filtered file (type=route and route=hiking)"
+	echo "   ℹ️  This is normal if there are no hiking routes in the OSH file for this region"
+	rm -f "$TMP_FILTERED" "$TMP_SORTED"
+	exit 0
+fi
+echo "   => Found $RELATION_COUNT relations in filtered file"
 
 # Trier le fichier pour qu'il soit dans le bon ordre (nodes, ways, relations)
 echo "   => Sorting relations file..."
@@ -294,27 +424,33 @@ if ! osmium sort "$TMP_FILTERED" -o "$TMP_SORTED" --overwrite 2>&1; then
 fi
 
 # Convertir le PBF trié en JSON pour traitement
+echo "   => Converting to JSON format..."
 if ! osmium export "$TMP_SORTED" -o "$TMP_RELATIONS" --overwrite 2>&1; then
 	echo "   ⚠️  Error converting PBF to JSON"
 	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
 	exit 1
 fi
 
-# Vérifier que le fichier existe et n'est pas vide
+# Vérifier que le fichier JSON existe et n'est pas vide
 if [ ! -f "$TMP_RELATIONS" ] || [ ! -s "$TMP_RELATIONS" ]; then
-	echo "   ⚠️  No relations extracted from OSH file"
+	echo "   ⚠️  JSON file is empty or missing"
 	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
 	exit 0
 fi
 
-# Compter les relations dans le fichier
+# Compter les relations dans le fichier JSON (format osmium export)
 ELEMENT_COUNT=$(grep -o '"type":"relation"' "$TMP_RELATIONS" 2>/dev/null | wc -l || echo "0")
 if [ "$ELEMENT_COUNT" = "0" ]; then
-	echo "   ⚠️  No relations found in OSH file"
+	# Essayer un autre format de comptage (peut-être que le format JSON est différent)
+	ELEMENT_COUNT=$(grep -c '"type": "relation"' "$TMP_RELATIONS" 2>/dev/null || echo "0")
+fi
+if [ "$ELEMENT_COUNT" = "0" ]; then
+	echo "   ⚠️  No relations found in JSON file (format may be different)"
+	echo "   ℹ️  File size: $(wc -c < "$TMP_RELATIONS" 2>/dev/null || echo 0) bytes"
 	rm -f "$TMP_FILTERED" "$TMP_SORTED" "$TMP_RELATIONS"
 	exit 0
 fi
-echo "   => Found $ELEMENT_COUNT relations in OSH file"
+echo "   => Found $ELEMENT_COUNT relations in JSON file"
 
 # Utiliser Node.js pour traiter les relations et leurs membres
 node - "$TMP_RELATIONS" <<'NODEJS'

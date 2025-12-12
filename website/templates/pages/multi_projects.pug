@@ -48,6 +48,28 @@ block content
 								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
 									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
 					
+					//- Cumulative progress chart
+					div.row.mb-4
+						div.col-12
+							div.d-flex.justify-content-between.align-items-center.mb-2
+								h3.mb-0= __("Cumul de toutes les mesures")
+							div(style="position: relative;")
+								div.spinner-charts-cumulative.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+								canvas#cumulative-chart.w-100(height="400")
+								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+					
+					//- Active users chart
+					div.row.mb-4
+						div.col-12
+							div.d-flex.justify-content-between.align-items-center.mb-2
+								h3.mb-0= __("Contributeurs actifs")
+							div(style="position: relative;")
+								div.spinner-charts-users.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+								canvas#active-users-chart.w-100(height="400")
+								a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+									img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+					
 					//- Podiums
 					div.row
 						div.col-md-6.mb-4
@@ -55,7 +77,7 @@ block content
 								= __("Top 3 contributions (30 jours)")
 								button.btn.btn-sm.btn-link.ml-2(type="button" data-toggle="modal" data-target="#podium-contributions-modal" style="padding: 0; vertical-align: baseline;")
 									i.fa.fa-info-circle
-							div#podium-contributions.row.justify-content-center.align-items-end(style="min-height: 200px;")
+							div#podium-contributions.row.justify-content-center.align-items-end(style="min-height: 450px;")
 								div.col.text-center
 									div.spinner-border.text-primary(role="status")
 						
@@ -199,6 +221,137 @@ block content
 					p.text-muted= __("Les données sont mises à jour quotidiennement.")
 
 		script.
+			// Load all projects stats asynchronously (non-blocking)
+			fetch('/projects/all/stats')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
+					}
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.projects) {
+						throw new Error('Invalid data format from API');
+					}
+					
+					const statsMap = data.projects;
+					
+					// Update stats for current projects
+					const currentProjectsContainer = document.querySelector('#summary .row');
+					if (currentProjectsContainer) {
+						currentProjectsContainer.querySelectorAll('.media').forEach(mediaEl => {
+							const link = mediaEl.querySelector('a[href^="/projects/"]');
+							if (link) {
+								const projectId = link.getAttribute('href').replace('/projects/', '');
+								const stats = statsMap[projectId];
+								if (stats) {
+									updateProjectBadges(mediaEl, stats);
+								}
+							}
+						});
+					}
+					
+					// Update stats for other projects
+					const otherProjectsContainer = document.querySelector('#others .row');
+					if (otherProjectsContainer) {
+						otherProjectsContainer.querySelectorAll('.media').forEach(mediaEl => {
+							const links = mediaEl.querySelectorAll('a[href^="/projects/"]');
+							if (links.length > 0) {
+								const projectId = links[0].getAttribute('href').replace('/projects/', '');
+								const stats = statsMap[projectId];
+								if (stats) {
+									updateProjectBadges(mediaEl, stats, true);
+								}
+							}
+						});
+					}
+				})
+				.catch(err => {
+					console.error('Error loading all projects stats:', err);
+					// Don't show error to user, just log it
+				});
+			
+			// Helper function to update project badges
+			function updateProjectBadges(mediaEl, stats, isOtherProject = false) {
+				const mediaBody = mediaEl.querySelector('.media-body');
+				if (!mediaBody) return;
+				
+				// Remove existing badges (look for badges after the title link)
+				const titleLink = mediaBody.querySelector('a.text-decoration-none');
+				if (titleLink) {
+					let nextSibling = titleLink.nextSibling;
+					while (nextSibling) {
+						if (nextSibling.nodeType === 1 && (nextSibling.classList.contains('mt-2') || nextSibling.classList.contains('mt-1'))) {
+							const toRemove = nextSibling;
+							nextSibling = nextSibling.nextSibling;
+							toRemove.remove();
+						} else {
+							nextSibling = nextSibling.nextSibling;
+						}
+					}
+				}
+				
+				// Create badges container
+				const badgesContainer = document.createElement('div');
+				badgesContainer.classList.add(isOtherProject ? 'mt-1' : 'mt-2');
+				
+				if (stats.last30Days !== null && stats.last30Days !== undefined) {
+					const count = stats.last30Days || 0;
+					const maxForColor = 1000;
+					const normalized = Math.min(100, (count / maxForColor) * 100);
+					const hue = Math.min(120, normalized * 1.2);
+					const saturation = Math.min(85, 30 + normalized * 0.55);
+					const lightness = Math.max(35, 50 - normalized * 0.15);
+					const badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`;
+					
+					const pastDate = stats.pastTs ? new Date(stats.pastTs).toLocaleDateString('fr-FR') : 'N/A';
+					const currentDate = stats.currentTs ? new Date(stats.currentTs).toLocaleDateString('fr-FR') : 'N/A';
+					const tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${pastDate} au ${currentDate})`;
+					
+					const countBadge = document.createElement('span');
+					countBadge.classList.add('badge');
+					countBadge.style.cssText = `background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;`;
+					countBadge.setAttribute('title', tooltipText);
+					countBadge.textContent = `${count.toLocaleString('fr-FR')} objets`;
+					badgesContainer.appendChild(countBadge);
+					
+					// Add ETA badge if available
+					if (stats.etaDays !== null && stats.etaDays !== undefined && stats.remaining > 0) {
+						const etaDays = stats.etaDays;
+						const etaYears = etaDays / 365;
+						const etaText = etaYears >= 1 ? Math.round(etaYears * 10) / 10 + " ans" : Math.ceil(etaDays) + " jours";
+						const showFire = etaDays < 365;
+						const avgPerDay = stats.last180Days ? Math.round(stats.last180Days / 180) : 0;
+						const etaTooltip = `Temps estimé pour dépasser le nombre d'objets à intégrer (${stats.remaining.toLocaleString('fr-FR')} objets) selon l'activité des 6 derniers mois (${avgPerDay} objets/jour en moyenne)`;
+						
+						const etaContainer = document.createElement('div');
+						etaContainer.classList.add('mt-1');
+						
+						const etaBadge = document.createElement('span');
+						etaBadge.classList.add('badge');
+						etaBadge.style.cssText = `background-color: ${showFire ? '#ff6b35' : '#4a90e2'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;`;
+						etaBadge.setAttribute('title', etaTooltip);
+						etaBadge.textContent = (showFire ? "🔥 " : "") + "ETA: " + etaText;
+						etaContainer.appendChild(etaBadge);
+						badgesContainer.appendChild(etaContainer);
+					}
+					
+					mediaBody.appendChild(badgesContainer);
+				} else {
+					// Show "0 objet" for projects without data
+					const noDataBadge = document.createElement('div');
+					noDataBadge.classList.add('mt-2');
+					
+					const badge = document.createElement('span');
+					badge.classList.add('badge');
+					badge.style.cssText = "background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;";
+					badge.setAttribute('title', "Aucune donnée disponible pour les 30 derniers jours");
+					badge.textContent = "0 objet";
+					noDataBadge.appendChild(badge);
+					mediaBody.appendChild(noDataBadge);
+				}
+			}
+			
 			// Load all projects progress chart
 			fetch('/api/all-projects-progress')
 				.then(res => {
@@ -322,6 +475,140 @@ block content
 					console.error('Error loading all projects progress:', err);
 					const chartContainer = document.getElementById("all-projects-chart").parentElement;
 					const spinner = chartContainer.querySelector(".spinner-charts");
+					if (spinner) spinner.remove();
+					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
+				});
+
+			// Load cumulative progress chart
+			fetch('/api/all-projects-cumulative')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
+					}
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
+						throw new Error('No cumulative data available');
+					}
+					
+					const chartContainer = document.getElementById("cumulative-chart").parentElement;
+					const ctx = document.getElementById("cumulative-chart").getContext("2d");
+					
+					const myChart = new Chart(ctx, {
+						type: "line",
+						data: {
+							datasets: [{
+								label: "#{__('Cumul de toutes les mesures')}",
+								data: data.data,
+								fill: true,
+								backgroundColor: "rgba(56, 142, 60, 0.2)",
+								borderColor: "#388E3C",
+								lineTension: 0.3,
+								pointRadius: 0,
+								pointHoverRadius: 4
+							}]
+						},
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true,
+										callback: function(value) {
+											return new Intl.NumberFormat('fr-FR').format(value);
+										}
+									}
+								}]
+							},
+							legend: {
+								display: true,
+								position: 'bottom'
+							}
+						}
+					});
+
+					const spinner = chartContainer.querySelector(".spinner-charts-cumulative");
+					if (spinner) spinner.remove();
+				})
+				.catch(err => {
+					console.error('Error loading cumulative progress:', err);
+					const chartContainer = document.getElementById("cumulative-chart").parentElement;
+					const spinner = chartContainer.querySelector(".spinner-charts-cumulative");
+					if (spinner) spinner.remove();
+					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
+				});
+
+			// Load active users chart
+			fetch('/api/active-users')
+				.then(res => {
+					if (!res.ok) {
+						throw new Error(`HTTP error! status: ${res.status}`);
+					}
+					return res.json();
+				})
+				.then(data => {
+					if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
+						throw new Error('No active users data available');
+					}
+					
+					const chartContainer = document.getElementById("active-users-chart").parentElement;
+					const ctx = document.getElementById("active-users-chart").getContext("2d");
+					
+					const myChart = new Chart(ctx, {
+						type: "line",
+						data: {
+							datasets: [{
+								label: "#{__('Nombre de contributeurs actifs')}",
+								data: data.data,
+								fill: true,
+								backgroundColor: "rgba(25, 118, 210, 0.2)",
+								borderColor: "#1976D2",
+								lineTension: 0.3,
+								pointRadius: 0,
+								pointHoverRadius: 4
+							}]
+						},
+						options: {
+							responsive: true,
+							scales: {
+								xAxes: [{
+									type: 'time',
+									time: {
+										tooltipFormat: "DD/MM/YYYY",
+										displayFormats: { day: "DD/MM/YYYY", month: "MM/YYYY" }
+									}
+								}],
+								yAxes: [{
+									ticks: {
+										beginAtZero: true,
+										callback: function(value) {
+											return new Intl.NumberFormat('fr-FR').format(value);
+										}
+									}
+								}]
+							},
+							legend: {
+								display: true,
+								position: 'bottom'
+							}
+						}
+					});
+
+					const spinner = chartContainer.querySelector(".spinner-charts-users");
+					if (spinner) spinner.remove();
+				})
+				.catch(err => {
+					console.error('Error loading active users:', err);
+					const chartContainer = document.getElementById("active-users-chart").parentElement;
+					const spinner = chartContainer.querySelector(".spinner-charts-users");
 					if (spinner) spinner.remove();
 					chartContainer.innerHTML = '<p class="text-danger">Erreur lors du chargement du graphique: ' + (err.message || 'Erreur inconnue') + '</p>';
 				});

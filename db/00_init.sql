@@ -89,6 +89,18 @@ CREATE TABLE IF NOT EXISTS pdm_note_counts_global(
 
 CREATE INDEX ON pdm_note_counts_global(ts);
 
+-- Note counts per boundary
+CREATE TABLE IF NOT EXISTS pdm_note_counts_per_boundary(
+	boundary BIGINT NOT NULL,
+	ts TIMESTAMP NOT NULL,
+	open INT NOT NULL,
+	closed INT NOT NULL,
+	CONSTRAINT pdm_note_counts_per_boundary_pk PRIMARY KEY(boundary, ts)
+);
+
+CREATE INDEX ON pdm_note_counts_per_boundary using btree (boundary);
+CREATE INDEX ON pdm_note_counts_per_boundary using btree (ts);
+
 -- Statistics per project and administrative boundary
 -- boundary can be null until we'll able to get geometry of deleted features
 CREATE TABLE pdm_features_boundary (

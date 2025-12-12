@@ -26,6 +26,27 @@
   },
   "datasources": [
     {
+      "source": "osmose",
+      "item": "8451",
+      "country": "france*",
+      "name": "Restaurant à compléter",
+      "description": "Ce restaurant existe déjà dans OSM, mais il lui manque des informations (cuisine, nom, etc.). Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter ce restaurant"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8450",
+      "country": "france*",
+      "name": "Restaurant à ajouter",
+      "description": "Ce restaurant existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-le à OSM.",
+      "buttons": {
+        "add": "Intégrer ce restaurant"
+      }
+    },
+    {
       "source": "notes",
       "name": "Restaurant à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
@@ -58,6 +79,7 @@
   "statistics": {
     "count": true,
     "feature_name": "restaurants",
+    "osmose_tasks": "restaurants complétés/intégrés",
     "points": {
       "add": 3,
       "edit": 1,

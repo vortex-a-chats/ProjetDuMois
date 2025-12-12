@@ -25,6 +25,27 @@
   },
   "datasources": [
     {
+      "source": "osmose",
+      "item": "8431",
+      "country": "france*",
+      "name": "Lampadaire à compléter",
+      "description": "Ce lampadaire existe déjà dans OSM, mais il lui manque des informations (type, hauteur, etc.). Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter ce lampadaire"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8430",
+      "country": "france*",
+      "name": "Lampadaire à ajouter",
+      "description": "Ce lampadaire existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-le à OSM.",
+      "buttons": {
+        "add": "Intégrer ce lampadaire"
+      }
+    },
+    {
       "source": "notes",
       "name": "Éclairage à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
@@ -64,6 +85,7 @@
   "statistics": {
     "count": true,
     "feature_name": "éclairages",
+    "osmose_tasks": "lampadaires complétés/intégrés",
     "points": {
       "add": 2,
       "edit": 1,

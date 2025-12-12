@@ -3,6 +3,18 @@ div.row.mb-4#stats-blocks
 	div.col.text-center
 		div.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 
+//- Osmose button if project has Osmose datasources
+if datasources && Array.isArray(datasources)
+	- var osmoseItems = datasources.filter(ds => ds.source === "osmose" && ds.item)
+	if osmoseItems.length > 0
+		div.row.mb-3
+			div.col-12
+				div.btn-group(role="group")
+					each osmoseItem in osmoseItems
+						a.btn.btn-outline-primary(href=`${CONFIG.OSMOSE_URL}/fr/map/#item=${osmoseItem.item}` target="_blank" rel="noopener noreferrer")
+							i.fa.fa-external-link-alt.mr-2
+							= __("Voir sur Osmose") + " (" + osmoseItem.item + ")"
+
 div.row
 	//- Leaderboard
 	div.col-12.mb-4
@@ -61,7 +73,7 @@ div.row
 						li= __("Les villes sont classées par ordre décroissant de leur qualité moyenne")
 					p.text-muted= __("Les données sont mises à jour quotidiennement.")
 
-	div.modal.fade#podium-cities-progress-modal(tabindex="-1" role="dialog")
+	div.modal.fade#podium-cities-progress-modal(tabindex="-1" role="dialog" style="top: 50px;")
 		div.modal-dialog(role="document")
 			div.modal-content
 				div.modal-header
@@ -102,6 +114,15 @@ div.row
 			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
 				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
 
+	div.col-12.mb-2#stats-variation-monthly-chart-container
+		h3= __("Variation mensuelle")
+		p.text-muted.small= __("Ce graphique montre la variation mensuelle agrégée du nombre d'objets, permettant d'identifier les mois les plus actifs.")
+		div(style="position: relative;")
+			div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+			canvas#stats-variation-monthly-chart.w-100(height="300")
+			a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
+				img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+
 	div.col-lg-6.mb-2#stats-chart-notes-container
 		h3= __("Notes")
 		div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
@@ -132,7 +153,8 @@ div.row
 script.
 	const projectDays = !{JSON.stringify(days)};
 	const projectId = window.location.pathname.match(/\/projects\/([^\/]+)/)?.[1] || !{JSON.stringify(id)};
-	function showStatistics() {
+	
+	const showStatistics = function() {
 		const numberFormat = new Intl.NumberFormat();
 
 		if (!projectId) {
@@ -453,52 +475,61 @@ script.
 			}
 			});
 
-			// Calculate variation chart from the main chart data
-			// Find the main dataset (first dataset with "Nombre" or "dans OSM" or "objets" in label, excluding the start date line)
-			const mainDataset = res.chart.find(
-				(ds) =>
-					ds &&
-					typeof ds.label === "string" &&
-					(ds.label.toLowerCase().includes("nombre") || 
-					 ds.label.toLowerCase().includes("dans osm") || 
-					 ds.label.toLowerCase().includes("objets")) &&
-					!ds.label.includes('#{__("Début du projet")}')
-			);
+			// Variation chart - use res.variationChart if available, otherwise calculate from main chart
+			let variationChartData = null;
 			
-			// Variation chart
-			if(mainDataset && Array.isArray(mainDataset.data) && mainDataset.data.length > 1) {
-				// Calculate variations: for each point i (starting from i=1), variation[i] = value[i] - value[i-1]
-				const variationData = [];
-				for (let i = 1; i < mainDataset.data.length; i++) {
-					const prev = mainDataset.data[i - 1];
-					const curr = mainDataset.data[i];
-					const variation = (Number(curr.y) || 0) - (Number(prev.y) || 0);
-					variationData.push({
-						t: curr.t,
-						y: variation
-					});
-				}
+			if(res.variationChart && Array.isArray(res.variationChart) && res.variationChart.length > 0) {
+				// Use variationChart from server response
+				variationChartData = res.variationChart;
+			} else {
+				// Fallback: Calculate variation chart from the main chart data
+				// Find the main dataset (first dataset with "Nombre" or "dans OSM" or "objets" in label, excluding the start date line)
+				const mainDataset = res.chart.find(
+					(ds) =>
+						ds &&
+						typeof ds.label === "string" &&
+						(ds.label.toLowerCase().includes("nombre") || 
+						 ds.label.toLowerCase().includes("dans osm") || 
+						 ds.label.toLowerCase().includes("objets")) &&
+						!ds.label.includes('#{__("Début du projet")}')
+				);
 				
-				const variationChartData = [{
-					label: "Variation entre mesures",
-					data: variationData,
-					fill: true,
-					borderColor: "#1976D2",
-					backgroundColor: "rgba(25, 118, 210, 0.2)",
-					lineTension: 0
-				}];
-				
-				if(variationChartData[0].data.length > 0) {
-					document.getElementById("stats-variation-chart-container").classList.remove("d-none");
-					const variationSpinner = document.querySelector("#stats-variation-chart-container .spinner-charts");
-					if(variationSpinner) variationSpinner.classList.add("d-none");
+				if(mainDataset && Array.isArray(mainDataset.data) && mainDataset.data.length > 1) {
+					// Calculate variations: for each point i (starting from i=1), variation[i] = value[i] - value[i-1]
+					const variationData = [];
+					for (let i = 1; i < mainDataset.data.length; i++) {
+						const prev = mainDataset.data[i - 1];
+						const curr = mainDataset.data[i];
+						const variation = (Number(curr.y) || 0) - (Number(prev.y) || 0);
+						variationData.push({
+							t: curr.t,
+							y: variation
+						});
+					}
 					
-					const ctxVariation = document.getElementById("stats-variation-chart").getContext("2d");
-					const myChartVariation = new Chart(ctxVariation, {
-						type: "bar",
-						data: {
-							datasets: variationChartData
-						},
+					variationChartData = [{
+						label: "Variation entre mesures",
+						data: variationData,
+						fill: true,
+						borderColor: "#1976D2",
+						backgroundColor: "rgba(25, 118, 210, 0.2)",
+						lineTension: 0
+					}];
+				}
+			}
+			
+			// Display variation chart if data is available
+			if(variationChartData && variationChartData.length > 0 && variationChartData[0].data && variationChartData[0].data.length > 0) {
+				document.getElementById("stats-variation-chart-container").classList.remove("d-none");
+				const variationSpinner = document.querySelector("#stats-variation-chart-container .spinner-charts");
+				if(variationSpinner) variationSpinner.classList.add("d-none");
+				
+				const ctxVariation = document.getElementById("stats-variation-chart").getContext("2d");
+				const myChartVariation = new Chart(ctxVariation, {
+					type: "line",
+					data: {
+						datasets: variationChartData
+					},
 					options: {
 						responsive: true,
 						scales: {
@@ -533,9 +564,113 @@ script.
 						}
 					}
 				});
+				
+				// Calculate monthly variation chart
+				if(variationChartData && variationChartData[0].data && variationChartData[0].data.length > 0) {
+					// Aggregate variations by month
+					const monthlyData = {};
+					const currentYear = new Date().getFullYear();
+					
+					// Initialize all 12 months with 0
+					for(let month = 0; month < 12; month++) {
+						const monthKey = currentYear + '-' + String(month + 1).padStart(2, '0');
+						monthlyData[monthKey] = 0;
+					}
+					
+					// Aggregate variations by month
+					variationChartData[0].data.forEach(point => {
+						if(point.t && point.y !== undefined && point.y !== null) {
+							const date = new Date(point.t);
+							const year = date.getFullYear();
+							const month = date.getMonth() + 1; // 1-12
+							
+							// Only include current year data
+							if(year === currentYear) {
+								const monthKey = year + '-' + String(month).padStart(2, '0');
+								if(monthlyData[monthKey] !== undefined) {
+									monthlyData[monthKey] += Number(point.y) || 0;
+								}
+							}
+						}
+					});
+					
+					// Convert to array format for chart
+					const monthlyChartData = [];
+					const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+					
+					for(let month = 1; month <= 12; month++) {
+						const monthKey = currentYear + '-' + String(month).padStart(2, '0');
+						const monthValue = monthlyData[monthKey] || 0;
+						monthlyChartData.push({
+							t: new Date(currentYear, month - 1, 1).toISOString(),
+							y: monthValue
+						});
+					}
+					
+					// Display monthly variation chart
+					if(monthlyChartData.length > 0) {
+						document.getElementById("stats-variation-monthly-chart-container").classList.remove("d-none");
+						const monthlySpinner = document.querySelector("#stats-variation-monthly-chart-container .spinner-charts");
+						if(monthlySpinner) monthlySpinner.classList.add("d-none");
+						
+						const ctxMonthly = document.getElementById("stats-variation-monthly-chart").getContext("2d");
+						const myChartMonthly = new Chart(ctxMonthly, {
+							type: "line",
+							data: {
+								datasets: [{
+									label: "Variation mensuelle",
+									data: monthlyChartData,
+									fill: true,
+									borderColor: "#7B1FA2",
+									backgroundColor: "rgba(123, 31, 162, 0.2)",
+									lineTension: 0.3,
+									pointRadius: 4,
+									pointHoverRadius: 6
+								}]
+							},
+							options: {
+								responsive: true,
+								scales: {
+									xAxes: [{
+										type: 'time',
+										bounds: 'ticks',
+										time: {
+											tooltipFormat: "MMMM YYYY",
+											displayFormats: { month: "MMMM" },
+											round: "month",
+											unit: "month"
+										}
+									}],
+									yAxes: [{
+										ticks: {
+											callback: function(value) {
+												return value > 0 ? '+' + numberFormat.format(value) : numberFormat.format(value);
+											}
+										}
+									}]
+								},
+								legend: {
+									display: true
+								},
+								tooltips: {
+									callbacks: {
+										label: function(tooltipItem, data) {
+											const value = tooltipItem.yLabel;
+											return data.datasets[tooltipItem.datasetIndex].label + ': ' + (value > 0 ? '+' : '') + numberFormat.format(value);
+										}
+									}
+								}
+							}
+						});
+					} else {
+						document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");
+					}
+				} else {
+					document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");
+				}
 			} else {
 				document.getElementById("stats-variation-chart-container").classList.add("d-none");
-			}
+				document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");
 			}
 
 			// Add OSM logo to chart after it's created
@@ -580,43 +715,52 @@ script.
 				if(listContainer) {
 					listContainer.innerHTML = '';
 					const allKeys = res.keysList.slice(0,50);
-					const visibleCount = 3;
+					const visibleCount = 6;
 					
-					allKeys.forEach((k, index) => {
+					// Function to create a list item
+					const createKeyItem = (k) => {
 						const li = document.createElement("li");
 						li.classList.add("list-group-item","d-flex","justify-content-between","align-items-center");
-						if(index >= visibleCount) {
-							li.classList.add("d-none", "stats-keys-hidden");
-						}
 						li.appendChild(document.createTextNode(k.k));
 						const badge = document.createElement("span");
 						badge.classList.add("badge","badge-primary","badge-pill");
 						badge.appendChild(document.createTextNode(numberFormat.format(k.amount)));
 						li.appendChild(badge);
-						listContainer.appendChild(li);
+						return li;
+					};
+					
+					// Only create and show the first 6 items initially
+					const visibleKeys = allKeys.slice(0, visibleCount);
+					visibleKeys.forEach((k) => {
+						listContainer.appendChild(createKeyItem(k));
 					});
 					
-					// Show "Show more" button if there are more than 3 items
-					if(allKeys.length > visibleCount && showMoreBtn) {
+					// Store hidden keys for later
+					const hiddenKeys = allKeys.slice(visibleCount);
+					
+					// Show "Show more" button if there are more than 6 items
+					if(hiddenKeys.length > 0 && showMoreBtn) {
 						showMoreBtn.classList.remove("d-none");
 						const showMoreText = showMoreBtn.textContent;
 						const showLessText = showMoreText.replace("plus", "moins");
+						let isExpanded = false;
+						
 						showMoreBtn.onclick = function() {
-							const hiddenItems = listContainer.querySelectorAll(".stats-keys-hidden");
-							const isHidden = hiddenItems.length > 0 && hiddenItems[0].classList.contains("d-none");
-							
-							hiddenItems.forEach(item => {
-								if(isHidden) {
-									item.classList.remove("d-none");
-								} else {
-									item.classList.add("d-none");
-								}
-							});
-							
-							if(isHidden) {
+							if(!isExpanded) {
+								// Add hidden items
+								hiddenKeys.forEach((k) => {
+									const li = createKeyItem(k);
+									li.classList.add("stats-keys-hidden");
+									listContainer.appendChild(li);
+								});
 								showMoreBtn.textContent = showLessText;
+								isExpanded = true;
 							} else {
+								// Remove hidden items
+								const hiddenItems = listContainer.querySelectorAll(".stats-keys-hidden");
+								hiddenItems.forEach(item => item.remove());
 								showMoreBtn.textContent = showMoreText;
+								isExpanded = false;
 							}
 						};
 					} else if(showMoreBtn) {
@@ -858,7 +1002,7 @@ script.
 						linkDiv.style.marginTop = "10px";
 						linkDiv.style.textAlign = "center";
 						const link = document.createElement("a");
-						link.href = `/projects/${projectId}/zones/${Math.abs(f.properties.boundary)}`;
+						link.href = '/projects/' + projectId + '/zones/' + Math.abs(f.properties.boundary);
 						link.textContent = "#{__('Voir les détails de la zone')}";
 						link.classList.add("btn", "btn-sm", "btn-primary");
 						linkDiv.appendChild(link);
@@ -1040,6 +1184,55 @@ script.
 	window.addEventListener("osm_logout", () => {
 		document.getElementById("stats-leaderboard-container").classList.add("d-none");
 		document.getElementById("stats-leaderboard-noauth").classList.remove("d-none");
+	});
+
+	// Modal handlers for zone podiums explanations
+	document.querySelectorAll('[data-toggle="modal"][data-target]').forEach(button => {
+		button.addEventListener('click', function(e) {
+			e.preventDefault();
+			const targetId = this.getAttribute('data-target');
+			const modal = document.querySelector(targetId);
+			if (modal) {
+				// Remove existing backdrop if any
+				const existingBackdrop = document.querySelector('.modal-backdrop');
+				if (existingBackdrop) existingBackdrop.remove();
+				
+				// Show modal
+				modal.classList.add('show');
+				modal.style.display = 'block';
+				modal.setAttribute('aria-hidden', 'false');
+				document.body.classList.add('modal-open');
+				
+				// Create and append backdrop
+				const backdrop = document.createElement('div');
+				backdrop.className = 'modal-backdrop fade show';
+				document.body.appendChild(backdrop);
+				
+				// Close function
+				const closeModal = () => {
+					modal.classList.remove('show');
+					modal.style.display = 'none';
+					modal.setAttribute('aria-hidden', 'true');
+					document.body.classList.remove('modal-open');
+					const backdropEl = document.querySelector('.modal-backdrop');
+					if (backdropEl) backdropEl.remove();
+				};
+				
+				// Close on backdrop click
+				backdrop.addEventListener('click', closeModal);
+				
+				// Close on close button click (remove old listeners first)
+				modal.querySelectorAll('[data-dismiss="modal"]').forEach(closeBtn => {
+					// Remove old listeners by cloning
+					const newCloseBtn = closeBtn.cloneNode(true);
+					closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+					newCloseBtn.addEventListener('click', function(e) {
+						e.preventDefault();
+						closeModal();
+					});
+				});
+			}
+		});
 	});
 
 	timerShowStats();

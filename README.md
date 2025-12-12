@@ -11,6 +11,13 @@ The tool is free (as in free beer and as much as in free speech) and developed b
 * [Giving return on experience and constructive suggestions](https://github.com/vdct/ProjetDuMois/issues) in French or in English
 * [Submitting software code](DEVELOP.md) for new features or bug fixes
 
+## API Documentation
+
+The API is fully documented using OpenAPI 3.0 (Swagger). You can:
+* View the interactive documentation: See [docs/SWAGGER.md](docs/SWAGGER.md) for instructions
+* Access the Swagger file: [docs/swagger.yaml](docs/swagger.yaml)
+* View API routes documentation: [docs/API_ROUTES.md](docs/API_ROUTES.md)
+
 This project embraces the [digital principles for development](https://digitalprinciples.org/).
 
 ![Logo of digital principles for development](/website/images/pdd-en.png)
@@ -67,6 +74,13 @@ L'outil est libre et réalisé par une équipe de bénévoles. Vous pouvez nous 
 
 * [En nous faisant des retours d'expériences et suggestions](https://github.com/vdct/ProjetDuMois/issues)
 * [En proposant du code](DEVELOP.md) pour de nouvelles fonctionnalités ou des correctifs de bugs
+
+## Documentation de l'API
+
+L'API est entièrement documentée en OpenAPI 3.0 (Swagger). Vous pouvez :
+* Consulter la documentation interactive : Voir [docs/SWAGGER.md](docs/SWAGGER.md) pour les instructions
+* Accéder au fichier Swagger : [docs/swagger.yaml](docs/swagger.yaml)
+* Consulter la documentation des routes : [docs/API_ROUTES.md](docs/API_ROUTES.md)
 
 Ce projet adhère aux [principes pour le développement numérique](https://digitalprinciples.org/).
 ![Logo des principes pour le développement numérique](/website/images/pdd.png)

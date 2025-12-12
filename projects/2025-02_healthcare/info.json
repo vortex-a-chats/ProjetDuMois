@@ -25,6 +25,52 @@
   },
   "datasources": [
     {
+      "source": "osmose",
+      "item": "8461",
+      "class": "pharmacy",
+      "country": "france*",
+      "name": "Pharmacie à compléter",
+      "description": "Cette pharmacie existe déjà dans OSM, mais il lui manque des informations. Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter cette pharmacie"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8460",
+      "class": "pharmacy",
+      "country": "france*",
+      "name": "Pharmacie à ajouter",
+      "description": "Cette pharmacie existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-la à OSM.",
+      "buttons": {
+        "add": "Intégrer cette pharmacie"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8471",
+      "class": "hospital",
+      "country": "france*",
+      "name": "Hôpital à compléter",
+      "description": "Cet hôpital existe déjà dans OSM, mais il lui manque des informations. Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter cet hôpital"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8470",
+      "class": "hospital",
+      "country": "france*",
+      "name": "Hôpital à ajouter",
+      "description": "Cet hôpital existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-le à OSM.",
+      "buttons": {
+        "add": "Intégrer cet hôpital"
+      }
+    },
+    {
       "source": "notes",
       "name": "Lieu de santé à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
@@ -53,7 +99,8 @@
     }
   ],
   "statistics": {
-    "count": true
+    "count": true,
+    "osmose_tasks": "lieux de santé complétés/intégrés"
   },
   "geographic_zone": "France",
   "icon": "/images/projects/healthcare.png",

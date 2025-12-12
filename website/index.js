@@ -93,127 +93,26 @@ app.get("/", (req, res) => {
   }
   // Multiple projects
   else if (nbProjects > 1) {
-    // Fetch completion statistics for all projects (even if statistics.count is not enabled)
-    const allProjects = [...(p.current || []), ...(p.past || [])];
-    const statsPromises = allProjects.map((proj) => {
-      // Calculate number of objects added in the last 30 days and 6 months for all projects
-      return pool
-        .query(
-          `
-          WITH current_count AS (
-            SELECT amount, ts
-            FROM pdm_feature_counts
-            WHERE project = $1
-            ORDER BY ts DESC
-            LIMIT 1
-          ),
-          count_30_days_ago AS (
-            SELECT amount, ts
-            FROM pdm_feature_counts
-            WHERE project = $1
-              AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
-            ORDER BY ts DESC
-            LIMIT 1
-          ),
-          count_180_days_ago AS (
-            SELECT amount, ts
-            FROM pdm_feature_counts
-            WHERE project = $1
-              AND ts <= (SELECT ts - INTERVAL '180 days' FROM current_count)
-            ORDER BY ts DESC
-            LIMIT 1
-          )
-          SELECT 
-            COALESCE((SELECT amount FROM current_count), 0) AS current_amount,
-            COALESCE((SELECT amount FROM count_30_days_ago), 0) AS past_amount,
-            COALESCE((SELECT amount FROM count_180_days_ago), 0) AS past_180_amount,
-            COALESCE((SELECT ts FROM current_count), NOW()) AS current_ts,
-            COALESCE((SELECT ts FROM count_30_days_ago), NOW() - INTERVAL '30 days') AS past_ts,
-            COALESCE((SELECT ts FROM count_180_days_ago), NOW() - INTERVAL '180 days') AS past_180_ts
-        `,
-          [proj.id],
-        )
-        .then((results) => {
-          if (results.rows.length === 0) {
-            return { id: proj.id, last30Days: null };
-          }
-          
-          const row = results.rows[0];
-          const currentAmount = parseInt(row.current_amount) || 0;
-          const pastAmount = parseInt(row.past_amount) || 0;
-          const past180Amount = parseInt(row.past_180_amount) || 0;
-          const last30Days = Math.max(0, currentAmount - pastAmount);
-          const last180Days = Math.max(0, currentAmount - past180Amount);
-          
-          // Calculate ETA - use the same logic as /projects/:id/stats endpoint
-          // Try to get remaining and ETA from project stats (which uses chart data)
-          // This is more reliable as it uses the actual chart data with "import" labels
-          const baseUrl = `${req.protocol}://${req.get('host')}`;
-          return fetch(`${baseUrl}/projects/${proj.id}/stats`)
-            .then((res) => {
-              if (!res.ok) throw new Error('Stats API failed');
-              return res.json();
-            })
-            .then((statsData) => {
-              // Use remaining and etaDays from stats API if available
-              // The stats API already calculates this from chart data
-              return { 
-                id: proj.id, 
-                last30Days,
-                last180Days,
-                currentAmount,
-                pastAmount,
-                currentTs: row.current_ts,
-                pastTs: row.past_ts,
-                remaining: statsData.remaining || null,
-                etaDays: statsData.etaDays || null
-              };
-            })
-            .catch(() => {
-              // If stats API fails, return basic stats without ETA
-              return { 
-                id: proj.id, 
-                last30Days,
-                last180Days,
-                currentAmount,
-                pastAmount,
-                currentTs: row.current_ts,
-                pastTs: row.past_ts,
-                remaining: null,
-                etaDays: null
-              };
-            });
-        })
-        .catch(() => {
-          return { id: proj.id, last30Days: null };
-        });
-    });
+    // Don't fetch stats during initial render - let frontend fetch them asynchronously
+    // This prevents blocking the page load
+    const currentProjects = p.current || [];
+    const otherProjects = p.past || [];
 
-    Promise.all(statsPromises).then((stats) => {
-      const statsMap = {};
-      stats.forEach((s) => {
-        statsMap[s.id] = s;
-      });
-
-      // Add stats to projects
-      const currentProjectsWithStats = (p.current || []).map((proj) => ({
-        ...proj,
-        stats: statsMap[proj.id] || { last30Days: null },
-      }));
-      const otherProjectsWithStats = (p.past || []).map((proj) => ({
-        ...proj,
-        stats: statsMap[proj.id] || { last30Days: null },
-      }));
-
-      res.render(
-        "pages/multi_projects",
-        Object.assign({
-          CONFIG,
-          currentProjects: currentProjectsWithStats,
-          otherProjects: otherProjectsWithStats.reverse(),
-        }),
-      );
-    });
+    res.render(
+      "pages/multi_projects",
+      Object.assign({
+        CONFIG,
+        currentProjects: currentProjects.map((proj) => ({
+          ...proj,
+          stats: { last30Days: null }, // Placeholder, will be filled by frontend
+        })),
+        otherProjects: otherProjects.reverse().map((proj) => ({
+          ...proj,
+          stats: { last30Days: null }, // Placeholder, will be filled by frontend
+        })),
+        // Ne pas passer icon pour la page d'accueil (multi_projects)
+      }),
+    );
   }
   // No projects at all
   else {
@@ -269,6 +168,109 @@ app.get("/api/all-projects-progress", (req, res) => {
     })
     .catch((err) => {
       console.error("Error fetching all projects progress:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API: Cumulative progress of all projects
+app.get("/api/all-projects-cumulative", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const allProjects = Object.values(projects);
+  
+  Promise.all(
+    allProjects.map((proj) => {
+      return pool
+        .query(
+          `
+          SELECT ts, amount
+          FROM pdm_feature_counts
+          WHERE project = $1
+          ORDER BY ts ASC
+        `,
+          [proj.id],
+        )
+        .then((results) => {
+          return results.rows.map((r) => ({
+            t: r.ts,
+            y: parseInt(r.amount) || 0,
+          }));
+        })
+        .catch(() => {
+          return [];
+        });
+    }),
+  )
+    .then((allData) => {
+      // Merge all data points by timestamp and sum amounts
+      const dataMap = new Map();
+      
+      allData.forEach((projectData) => {
+        projectData.forEach((point) => {
+          const timestamp = new Date(point.t).toISOString();
+          const existing = dataMap.get(timestamp) || 0;
+          dataMap.set(timestamp, existing + point.y);
+        });
+      });
+      
+      // Convert to array and sort by timestamp
+      const cumulativeData = Array.from(dataMap.entries())
+        .map(([t, y]) => ({ t, y }))
+        .sort((a, b) => new Date(a.t) - new Date(b.t));
+      
+      // Calculate cumulative sum
+      let cumulative = 0;
+      const result = cumulativeData.map((point) => {
+        cumulative += point.y;
+        return {
+          t: point.t,
+          y: cumulative,
+        };
+      });
+      
+      res.json({
+        data: result,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching cumulative progress:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API: Active users over time
+app.get("/api/active-users", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  // Get unique users per day from pdm_user_contribs
+  pool
+    .query(
+      `
+      SELECT 
+        DATE(ts) as date,
+        COUNT(DISTINCT userid) as user_count
+      FROM pdm_user_contribs
+      WHERE ts >= NOW() - INTERVAL '2 years'
+      GROUP BY DATE(ts)
+      ORDER BY DATE(ts) ASC
+    `,
+    )
+    .then((results) => {
+      const data = results.rows.map((r) => ({
+        t: r.date,
+        y: parseInt(r.user_count) || 0,
+      }));
+      
+      res.json({
+        data: data,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching active users:", err);
       res.status(500).json({ error: "Internal server error" });
     });
 });
@@ -516,6 +518,185 @@ app.get("/projects/:id/issues", (req, res) => {
     all.current.length > 0 &&
     all.current.find((p) => p.id === req.params.id) !== undefined;
   res.render("pages/issues", Object.assign({ CONFIG, isActive }, p));
+});
+
+// All projects statistics (optimized endpoint for homepage)
+app.get("/projects/all/stats", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const allProjects = Object.values(projects);
+  const osmUserAuthentified =
+    typeof req.query.osm_user === "string" &&
+    req.query.osm_user.trim().length > 0;
+
+  // Fetch stats for all projects in parallel
+  Promise.all(
+    allProjects.map((proj) => {
+      // Get basic counts (30 days, 180 days)
+      return pool
+        .query(
+          `
+          WITH current_count AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+            ORDER BY ts DESC
+            LIMIT 1
+          ),
+          count_30_days_ago AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+              AND ts <= (SELECT ts - INTERVAL '30 days' FROM current_count)
+            ORDER BY ts DESC
+            LIMIT 1
+          ),
+          count_180_days_ago AS (
+            SELECT amount, ts
+            FROM pdm_feature_counts
+            WHERE project = $1
+              AND ts <= (SELECT ts - INTERVAL '180 days' FROM current_count)
+            ORDER BY ts DESC
+            LIMIT 1
+          )
+          SELECT 
+            COALESCE((SELECT amount FROM current_count), 0) AS current_amount,
+            COALESCE((SELECT amount FROM count_30_days_ago), 0) AS past_amount,
+            COALESCE((SELECT amount FROM count_180_days_ago), 0) AS past_180_amount,
+            COALESCE((SELECT ts FROM current_count), NOW()) AS current_ts,
+            COALESCE((SELECT ts FROM count_30_days_ago), NOW() - INTERVAL '30 days') AS past_ts,
+            COALESCE((SELECT ts FROM count_180_days_ago), NOW() - INTERVAL '180 days') AS past_180_ts
+        `,
+          [proj.id],
+        )
+        .then((results) => {
+          if (results.rows.length === 0) {
+            return {
+              id: proj.id,
+              last30Days: null,
+              last180Days: null,
+              currentAmount: 0,
+              pastAmount: 0,
+              remaining: null,
+              etaDays: null,
+            };
+          }
+
+          const row = results.rows[0];
+          const currentAmount = parseInt(row.current_amount) || 0;
+          const pastAmount = parseInt(row.past_amount) || 0;
+          const past180Amount = parseInt(row.past_180_amount) || 0;
+          const last30Days = Math.max(0, currentAmount - pastAmount);
+          const last180Days = Math.max(0, currentAmount - past180Amount);
+
+          // Calculate remaining and ETA from chart data (same logic as /projects/:id/stats)
+          if (proj.statistics && proj.statistics.count) {
+            return pool
+              .query(
+                `
+                SELECT ts, amount
+                FROM pdm_feature_counts
+                WHERE project = $1
+                ORDER BY ts ASC
+              `,
+                [proj.id],
+              )
+              .then((chartResults) => {
+                const rows = chartResults.rows || [];
+                const currentAmountFromChart =
+                  rows.length > 0 ? parseInt(rows[rows.length - 1].amount) || 0 : 0;
+
+                // Calculate remaining
+                const totalToIntegrate =
+                  typeof proj.statistics?.total_expected === "number"
+                    ? proj.statistics.total_expected
+                    : typeof proj.statistics?.to_integrate === "number"
+                      ? proj.statistics.to_integrate
+                      : typeof proj.statistics?.target === "number"
+                        ? proj.statistics.target
+                        : null;
+                const remaining =
+                  totalToIntegrate != null
+                    ? Math.max(0, totalToIntegrate - currentAmountFromChart)
+                    : null;
+
+                // Calculate ETA based on last 180 days average
+                let etaDays = null;
+                if (remaining != null && remaining > 0 && last180Days > 0) {
+                  const avgPerDay = last180Days / 180;
+                  if (avgPerDay > 0) {
+                    etaDays = remaining / avgPerDay;
+                  }
+                }
+
+                return {
+                  id: proj.id,
+                  last30Days,
+                  last180Days,
+                  currentAmount,
+                  pastAmount,
+                  currentTs: row.current_ts,
+                  pastTs: row.past_ts,
+                  remaining,
+                  etaDays,
+                };
+              })
+              .catch(() => {
+                return {
+                  id: proj.id,
+                  last30Days,
+                  last180Days,
+                  currentAmount,
+                  pastAmount,
+                  currentTs: row.current_ts,
+                  pastTs: row.past_ts,
+                  remaining: null,
+                  etaDays: null,
+                };
+              });
+          } else {
+            return {
+              id: proj.id,
+              last30Days,
+              last180Days,
+              currentAmount,
+              pastAmount,
+              currentTs: row.current_ts,
+              pastTs: row.past_ts,
+              remaining: null,
+              etaDays: null,
+            };
+          }
+        })
+        .catch(() => {
+          return {
+            id: proj.id,
+            last30Days: null,
+            last180Days: null,
+            currentAmount: 0,
+            pastAmount: 0,
+            remaining: null,
+            etaDays: null,
+          };
+        });
+    }),
+  )
+    .then((stats) => {
+      const statsMap = {};
+      stats.forEach((s) => {
+        statsMap[s.id] = s;
+      });
+
+      res.json({
+        projects: statsMap,
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching all projects stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
 });
 
 // Project statistics
@@ -1623,6 +1804,120 @@ app.get("/api/notes-france", (req, res) => {
     })
     .catch((err) => {
       console.error("Error fetching notes France stats:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API endpoint for notes by boundaries
+app.get("/api/notes-france/boundaries", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  // Récupérer les boundary IDs depuis les paramètres de requête
+  const boundaryIdsParam = req.query.boundaries || req.query.boundary;
+  if (!boundaryIdsParam) {
+    return res.status(400).json({ error: "Missing 'boundaries' parameter. Provide comma-separated boundary IDs." });
+  }
+
+  // Parser les boundary IDs (peuvent être séparés par des virgules)
+  const boundaryIds = boundaryIdsParam
+    .split(',')
+    .map(id => parseInt(id.trim()))
+    .filter(id => !isNaN(id));
+
+  if (boundaryIds.length === 0) {
+    return res.status(400).json({ error: "Invalid boundary IDs provided" });
+  }
+
+  // Récupérer les données de notes pour ces zones
+  pool
+    .query(
+      `
+      SELECT 
+        n.boundary,
+        b.name as boundary_name,
+        b.admin_level,
+        n.ts,
+        n.open,
+        n.closed,
+        (n.open + n.closed) as total
+      FROM pdm_note_counts_per_boundary n
+      JOIN pdm_boundary b ON n.boundary = b.osm_id OR n.boundary = -b.osm_id
+      WHERE n.boundary = ANY($1::bigint[]) OR n.boundary = ANY(ARRAY(SELECT -x FROM unnest($1::bigint[]) AS x))
+      ORDER BY n.boundary, n.ts ASC
+    `,
+      [boundaryIds],
+    )
+    .then((result) => {
+      // Grouper les résultats par boundary
+      const dataByBoundary = {};
+      result.rows.forEach((r) => {
+        const boundaryId = Math.abs(parseInt(r.boundary));
+        if (!dataByBoundary[boundaryId]) {
+          dataByBoundary[boundaryId] = {
+            boundary: boundaryId,
+            name: r.boundary_name,
+            admin_level: r.admin_level,
+            data: [],
+          };
+        }
+        dataByBoundary[boundaryId].data.push({
+          t: r.ts,
+          open: parseInt(r.open) || 0,
+          closed: parseInt(r.closed) || 0,
+          total: parseInt(r.total) || 0,
+        });
+      });
+
+      res.json({
+        boundaries: Object.values(dataByBoundary),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching notes by boundaries:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+});
+
+// API endpoint to list available boundaries with note counts
+app.get("/api/notes-france/boundaries/list", (req, res) => {
+  if (CONFIG.MAINTENANCE_MODE === true) {
+    return res.status(503).json({ error: "Service unavailable" });
+  }
+
+  const adminLevel = req.query.admin_level ? parseInt(req.query.admin_level) : null;
+
+  pool
+    .query(
+      `
+      SELECT DISTINCT
+        b.osm_id as boundary,
+        b.name,
+        b.admin_level,
+        COUNT(DISTINCT n.ts) as data_points
+      FROM pdm_boundary b
+      INNER JOIN pdm_note_counts_per_boundary n 
+        ON (n.boundary = b.osm_id OR n.boundary = -b.osm_id)
+      WHERE b.admin_level IN (4, 6, 8)
+        ${adminLevel ? 'AND b.admin_level = $1' : ''}
+      GROUP BY b.osm_id, b.name, b.admin_level
+      ORDER BY b.admin_level, b.name
+    `,
+      adminLevel ? [adminLevel] : [],
+    )
+    .then((result) => {
+      res.json({
+        boundaries: result.rows.map((r) => ({
+          boundary: parseInt(r.boundary),
+          name: r.name,
+          admin_level: parseInt(r.admin_level),
+          data_points: parseInt(r.data_points) || 0,
+        })),
+      });
+    })
+    .catch((err) => {
+      console.error("Error fetching boundaries list:", err);
       res.status(500).json({ error: "Internal server error" });
     });
 });

@@ -1,0 +1,1116 @@
+openapi: 3.0.3
+info:
+  title: ProjetDuMois API
+  description: |
+    API pour le système ProjetDuMois - Plateforme de cartographie collaborative pour OpenStreetMap.
+    
+    Cette API permet de récupérer les statistiques des projets, les données de progression,
+    les informations sur les zones administratives, et d'enregistrer les contributions.
+  version: 1.0.0
+  contact:
+    name: Support ProjetDuMois
+    url: https://github.com/vdct/ProjetDuMois
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Serveur de développement local
+  - url: https://projetdumois.fr
+    description: Serveur de production
+
+tags:
+  - name: Statistiques
+    description: Endpoints pour récupérer les statistiques des projets
+  - name: Projets
+    description: Informations sur les projets
+  - name: Zones
+    description: Statistiques et données par zone administrative
+  - name: Contributions
+    description: Enregistrement des contributions utilisateurs
+  - name: Utilisateurs
+    description: Informations sur les utilisateurs
+  - name: Notes
+    description: Notes OSM pour la France
+  - name: Randonnée
+    description: Données sur les itinéraires de randonnée
+
+paths:
+  /api/all-projects-progress:
+    get:
+      tags:
+        - Statistiques
+      summary: Progression de tous les projets
+      description: |
+        Récupère les données de progression (graphique) pour tous les projets.
+        Utilisé pour afficher le graphique de progression global sur la page d'accueil.
+      operationId: getAllProjectsProgress
+      responses:
+        '200':
+          description: Données de progression de tous les projets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProjectProgress'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/all-projects-cumulative:
+    get:
+      tags:
+        - Statistiques
+      summary: Cumul de toutes les mesures
+      description: |
+        Récupère le cumul de toutes les mesures de tous les projets.
+        Additionne le nombre d'objets de tous les projets à chaque timestamp.
+      operationId: getAllProjectsCumulative
+      responses:
+        '200':
+          description: Données cumulatives de tous les projets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        t:
+                          type: string
+                          format: date-time
+                          example: "2018-12-01T00:00:00Z"
+                        y:
+                          type: integer
+                          description: Nombre cumulé d'objets à cette date
+                          example: 50000
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/active-users:
+    get:
+      tags:
+        - Statistiques
+      summary: Contributeurs actifs
+      description: |
+        Récupère l'évolution du nombre de contributeurs actifs par jour
+        sur les 2 dernières années.
+      operationId: getActiveUsers
+      responses:
+        '200':
+          description: Évolution du nombre de contributeurs actifs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        t:
+                          type: string
+                          format: date
+                          example: "2024-12-01"
+                        y:
+                          type: integer
+                          description: Nombre de contributeurs actifs ce jour
+                          example: 15
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/podiums:
+    get:
+      tags:
+        - Statistiques
+      summary: Podiums des projets
+      description: |
+        Récupère les classements des projets :
+        - Top 3 contributions (30 derniers jours)
+        - Top 3 qualité (30 derniers jours)
+      operationId: getPodiums
+      responses:
+        '200':
+          description: Données des podiums
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Podiums'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/all/stats:
+    get:
+      tags:
+        - Statistiques
+      summary: Statistiques de tous les projets
+      description: |
+        Récupère les statistiques de base de tous les projets en une seule requête.
+        Optimisé pour le chargement asynchrone de la page d'accueil.
+      operationId: getAllProjectsStats
+      parameters:
+        - name: osm_user
+          in: query
+          description: Nom d'utilisateur OSM (optionnel)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Statistiques de tous les projets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/ProjectBasicStats'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/stats:
+    get:
+      tags:
+        - Statistiques
+      summary: Statistiques détaillées d'un projet
+      description: |
+        Récupère toutes les statistiques détaillées d'un projet spécifique,
+        incluant les graphiques, le classement, les données Osmose, etc.
+      operationId: getProjectStats
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Identifiant du projet (ex: 2024-12_streetlamps)"
+          schema:
+            type: string
+        - name: osm_user
+          in: query
+          description: Nom d'utilisateur OSM pour afficher le classement personnel
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Statistiques détaillées du projet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetailedStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/zones/{boundary_id}/stats:
+    get:
+      tags:
+        - Zones
+      summary: Statistiques d'un projet pour une zone administrative
+      description: |
+        Récupère les statistiques d'un projet pour une zone administrative spécifique
+        (ville, département, région, etc.)
+      operationId: getZoneStats
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: boundary_id
+          in: path
+          required: true
+          description: ID OSM de la relation administrative (peut être négatif)
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Statistiques de la zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/zones/{boundary_id}/objects:
+    get:
+      tags:
+        - Zones
+      summary: Liste des objets d'un projet pour une zone
+      description: |
+        Récupère la liste des objets d'un projet pour une zone administrative au format JSON.
+      operationId: getZoneObjects
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: boundary_id
+          in: path
+          required: true
+          description: ID OSM de la relation administrative (peut être négatif)
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Liste des objets de la zone
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    osm_id:
+                      type: integer
+                      example: 123456
+                    name:
+                      type: string
+                      nullable: true
+                      example: "Nom de l'objet"
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      example:
+                        amenity: "street_lamp"
+                        height: "5"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/zones/{boundary_id}:
+    get:
+      tags:
+        - Zones
+      summary: Page d'une zone administrative
+      description: |
+        Page HTML affichant les détails d'une zone administrative pour un projet.
+      operationId: getZonePage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: boundary_id
+          in: path
+          required: true
+          description: ID OSM de la relation administrative
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Page HTML de la zone
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{id}/zones-search:
+    get:
+      tags:
+        - Zones
+      summary: Recherche de zones administratives
+      description: |
+        Recherche des zones administratives (villes, départements) par nom.
+      operationId: searchZones
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: true
+          description: Terme de recherche
+          schema:
+            type: string
+        - name: admin_level
+          in: query
+          description: Niveau administratif (4=région, 6=département, 8=commune)
+          required: false
+          schema:
+            type: integer
+            enum: [4, 6, 8]
+      responses:
+        '200':
+          description: Liste des zones trouvées
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Boundary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{id}/zones-podiums:
+    get:
+      tags:
+        - Zones
+      summary: Podiums des zones d'un projet
+      description: |
+        Récupère les classements des zones (villes) pour un projet :
+        - Top 10 qualité (complétion moyenne)
+        - Top 10 progression (30 derniers jours)
+      operationId: getZonesPodiums
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Podiums des zones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZonesPodiums'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/quality:
+    get:
+      tags:
+        - Statistiques
+      summary: Statistiques de qualité d'un projet
+      description: |
+        Récupère les statistiques de qualité de complétion d'un projet.
+      operationId: getProjectQuality
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Statistiques de qualité
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QualityStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{id}/contribute/{userid}:
+    post:
+      tags:
+        - Contributions
+      summary: Enregistrer une contribution
+      description: |
+        Enregistre une contribution d'un utilisateur pour un projet.
+        Calcule et retourne les nouveaux badges obtenus.
+      operationId: contribute
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: userid
+          in: path
+          required: true
+          description: ID utilisateur OSM
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - username
+                - type
+              properties:
+                username:
+                  type: string
+                  description: Nom d'utilisateur OSM
+                type:
+                  type: string
+                  enum: [add, edit, delete, note]
+                  description: Type de contribution
+      responses:
+        '200':
+          description: Contribution enregistrée avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContributionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /projects/{id}/ignore/{osmtype}/{osmid}:
+    post:
+      tags:
+        - Contributions
+      summary: Exclure un objet de la comparaison
+      description: |
+        Ajoute un objet OSM à la liste d'exclusion pour le mode comparaison.
+      operationId: ignoreObject
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant du projet
+          schema:
+            type: string
+        - name: osmtype
+          in: path
+          required: true
+          description: Type d'objet OSM
+          schema:
+            type: string
+            enum: [node, way, relation]
+        - name: osmid
+          in: path
+          required: true
+          description: ID de l'objet OSM
+          schema:
+            type: integer
+        - name: user_id
+          in: query
+          description: ID utilisateur OSM (optionnel)
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Objet ajouté à l'exclusion
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/notes-france:
+    get:
+      tags:
+        - Notes
+      summary: Statistiques des notes OSM pour la France
+      description: |
+        Récupère l'évolution du nombre de notes OSM ouvertes et fermées en France dans le temps.
+      operationId: getNotesFrance
+      responses:
+        '200':
+          description: Évolution des notes OSM
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    t:
+                      type: string
+                      format: date-time
+                      example: "2018-12-01T00:00:00Z"
+                    open:
+                      type: integer
+                      description: Nombre de notes ouvertes
+                      example: 1500
+                    closed:
+                      type: integer
+                      description: Nombre de notes fermées
+                      example: 500
+                    total:
+                      type: integer
+                      description: Nombre total de notes
+                      example: 2000
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/hiking-route/{relation_id}/members:
+    get:
+      tags:
+        - Randonnée
+      summary: Historique des membres d'un itinéraire de randonnée
+      description: |
+        Récupère l'historique des changements du nombre de membres (ways) d'une relation d'itinéraire de randonnée.
+      operationId: getHikingRouteMembers
+      parameters:
+        - name: relation_id
+          in: path
+          required: true
+          description: ID OSM de la relation
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Historique des membres de la relation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HikingRouteMembers'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/hiking-route/{relation_id}/breaks:
+    get:
+      tags:
+        - Randonnée
+      summary: Points de rupture d'un itinéraire de randonnée
+      description: |
+        Identifie les points de rupture (gaps) dans un itinéraire de randonnée,
+        c'est-à-dire les endroits où les ways ne sont pas connectés.
+      operationId: getHikingRouteBreaks
+      parameters:
+        - name: relation_id
+          in: path
+          required: true
+          description: ID OSM de la relation
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Points de rupture
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HikingRouteBreaks'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  schemas:
+    ProjectProgress:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "2024-12_streetlamps"
+        title:
+          type: string
+          example: "Éclairages de rue"
+        icon:
+          type: string
+          example: "/images/projects/streetlamps.png"
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              t:
+                type: string
+                format: date-time
+                example: "2018-12-01T00:00:00Z"
+              y:
+                type: integer
+                example: 1000
+
+    ProjectBasicStats:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "2024-12_streetlamps"
+        last30Days:
+          type: integer
+          nullable: true
+          description: Nombre d'objets ajoutés dans les 30 derniers jours
+          example: 150
+        last180Days:
+          type: integer
+          nullable: true
+          description: Nombre d'objets ajoutés dans les 180 derniers jours
+          example: 500
+        currentAmount:
+          type: integer
+          description: Nombre actuel d'objets
+          example: 5000
+        pastAmount:
+          type: integer
+          description: Nombre d'objets il y a 30 jours
+          example: 4850
+        currentTs:
+          type: string
+          format: date-time
+          example: "2024-12-15T00:00:00Z"
+        pastTs:
+          type: string
+          format: date-time
+          example: "2024-11-15T00:00:00Z"
+        remaining:
+          type: integer
+          nullable: true
+          description: Nombre d'objets restants à intégrer (si target défini)
+          example: 2000
+        etaDays:
+          type: number
+          nullable: true
+          description: Nombre de jours estimés pour atteindre l'objectif
+          example: 365.5
+
+    ProjectDetailedStats:
+      type: object
+      properties:
+        chart:
+          type: array
+          description: Graphiques d'évolution
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                example: "Nombre dans OSM"
+              data:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    t:
+                      type: string
+                      format: date-time
+                    y:
+                      type: integer
+              fill:
+                type: boolean
+              borderColor:
+                type: string
+              lineTension:
+                type: integer
+        variationChart:
+          type: array
+          nullable: true
+          description: Graphique des variations entre mesures
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              data:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    t:
+                      type: string
+                      format: date-time
+                    y:
+                      type: integer
+        added:
+          type: integer
+          nullable: true
+          description: Nombre d'objets ajoutés depuis le début
+          example: 567
+        count:
+          type: integer
+          nullable: true
+          description: Nombre total d'objets actuellement
+          example: 1234
+        nbContributors:
+          type: integer
+          description: Nombre de contributeurs
+          example: 42
+        leaderboard:
+          type: array
+          nullable: true
+          description: Classement des contributeurs (si osm_user fourni)
+          items:
+            type: object
+            properties:
+              project:
+                type: string
+              userid:
+                type: integer
+              username:
+                type: string
+              amount:
+                type: integer
+              pos:
+                type: integer
+        chartKeys:
+          type: object
+          nullable: true
+          description: Statistiques des tags les plus utilisés
+          properties:
+            labels:
+              type: array
+              items:
+                type: string
+            datasets:
+              type: array
+              items:
+                type: object
+        chartNotes:
+          type: array
+          nullable: true
+          description: Graphique des notes ouvertes/fermées
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              data:
+                type: array
+                items:
+                  type: object
+        tasksSolved:
+          type: integer
+          nullable: true
+          description: Nombre de tâches Osmose résolues
+          example: 25
+        mapStyle:
+          type: object
+          nullable: true
+          description: Style de carte pour les statistiques par zone
+        qualityStats:
+          type: object
+          nullable: true
+          description: Statistiques de qualité de complétion
+          properties:
+            chart:
+              type: array
+              items:
+                type: object
+            current:
+              type: object
+              properties:
+                avg_completion:
+                  type: number
+                total_objects:
+                  type: integer
+                fully_complete:
+                  type: integer
+                partially_complete:
+                  type: integer
+                incomplete:
+                  type: integer
+            required_tags:
+              type: array
+              items:
+                type: string
+        projectStartDate:
+          type: string
+          format: date
+          example: "2018-12-01"
+        projectName:
+          type: string
+          example: "Éclairages de rue"
+        geographicZone:
+          type: string
+          example: "France"
+
+    ZoneStats:
+      type: object
+      properties:
+        boundary:
+          $ref: '#/components/schemas/Boundary'
+        counts:
+          type: array
+          items:
+            type: object
+            properties:
+              ts:
+                type: string
+                format: date-time
+              amount:
+                type: integer
+        otherProjects:
+          type: array
+          items:
+            type: string
+          description: Liste des autres projets ayant des données pour cette zone
+        currentCount:
+          type: integer
+          description: Nombre actuel d'objets dans la zone
+        qualityStats:
+          type: object
+          nullable: true
+          properties:
+            chart:
+              type: array
+              items:
+                type: object
+            current:
+              type: object
+
+    Boundary:
+      type: object
+      properties:
+        osm_id:
+          type: integer
+          example: 7444
+        name:
+          type: string
+          example: "Paris"
+        admin_level:
+          type: integer
+          example: 8
+          description: "4=région, 6=département, 8=commune"
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    ZonesPodiums:
+      type: object
+      properties:
+        quality:
+          type: array
+          description: Top 10 villes par qualité (complétion moyenne)
+          items:
+            type: object
+            properties:
+              boundary_id:
+                type: integer
+              name:
+                type: string
+              avg_completion:
+                type: number
+              object_count:
+                type: integer
+        progress:
+          type: array
+          description: Top 10 villes par progression (30 derniers jours)
+          items:
+            type: object
+            properties:
+              boundary_id:
+                type: integer
+              name:
+                type: string
+              added:
+                type: integer
+              current_amount:
+                type: integer
+
+    QualityStats:
+      type: object
+      properties:
+        chart:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              data:
+                type: array
+                items:
+                  type: object
+        current:
+          type: object
+          properties:
+            avg_completion:
+              type: number
+            total_objects:
+              type: integer
+            fully_complete:
+              type: integer
+            partially_complete:
+              type: integer
+            incomplete:
+              type: integer
+        required_tags:
+          type: array
+          items:
+            type: string
+
+    Podiums:
+      type: object
+      properties:
+        contributions:
+          type: array
+          description: Top 3 projets par nombre d'objets ajoutés (30 jours)
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              icon:
+                type: string
+              added:
+                type: integer
+        quality:
+          type: array
+          description: Top 3 projets par amélioration de qualité (30 jours)
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              icon:
+                type: string
+              increase:
+                type: number
+              past:
+                type: number
+              current:
+                type: number
+
+    ContributionResponse:
+      type: object
+      properties:
+        badges:
+          type: array
+          description: Nouveaux badges obtenus
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                example: "contributed"
+              name:
+                type: string
+                example: "A participé"
+              description:
+                type: string
+              acquired:
+                type: boolean
+              progress:
+                type: integer
+                description: Pourcentage de progression (0-100)
+
+
+    HikingRouteMembers:
+      type: object
+      properties:
+        relation_id:
+          type: integer
+          example: 12345
+        history:
+          type: array
+          description: Historique des changements du nombre de membres
+          items:
+            type: object
+            properties:
+              ts:
+                type: string
+                format: date-time
+                example: "2024-12-01T00:00:00Z"
+              member_count:
+                type: integer
+                description: Nombre de membres à cette date
+                example: 25
+              changeset_id:
+                type: integer
+                nullable: true
+                example: 12345678
+              username:
+                type: string
+                nullable: true
+                example: "utilisateur"
+              userid:
+                type: integer
+                nullable: true
+                example: 12345
+
+    HikingRouteBreaks:
+      type: object
+      properties:
+        relation_id:
+          type: integer
+        breaks:
+          type: array
+          items:
+            type: object
+            properties:
+              lat:
+                type: number
+              lon:
+                type: number
+              reason:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Requête invalide (paramètres manquants ou incorrects)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Invalid boundary ID"
+
+    NotFound:
+      description: Ressource non trouvée
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Project not found"
+
+    ServiceUnavailable:
+      description: Service en maintenance
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Service unavailable"
+
+    InternalServerError:
+      description: Erreur serveur interne
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal server error"

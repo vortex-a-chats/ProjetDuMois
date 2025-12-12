@@ -1,6 +1,7 @@
 extends ../layout.pug
 
 block head
+	title= `${boundary.name} - ${project.title} - Projet du mois`
 	script(src="/lib/maplibre-gl/maplibre-gl.js")
 	script(src="/lib/chart.js/chart.min.js")
 	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
@@ -31,7 +32,7 @@ block content
 				if allProjectsForZone && allProjectsForZone.length > 1
 					= __("Projet")
 					| : 
-					select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" onchange="window.location.href='/projects/' + this.value + '/zones/#{boundary.id}'")
+					select.form-control.d-inline-block.ml-2(style="width: auto; display: inline-block; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);" data-boundary-id=boundary.id onchange="window.location.href='/projects/' + this.value + '/zones/' + this.getAttribute('data-boundary-id')")
 						each proj in allProjectsForZone
 							option(value=proj.id selected=(proj.id === project.id) style="background: #343a40; color: white;")= proj.title
 				else
@@ -57,21 +58,6 @@ block content
 			div.row
 				div.col-12.mb-4
 					h2#statistics= __("Statistiques de la zone")
-					
-					//- Zone search form
-					div.card.mb-4
-						div.card-body
-							h5.card-title= __("Rechercher une autre zone")
-							p.card-text= __("Recherchez une ville, un département ou une région par son nom ou son code INSEE")
-							form#zone-search-form
-								div.form-row
-									div.col-md-8.mb-2(style="position: relative;")
-										input.form-control#zone-search-input(type="text" placeholder=__("Nom de la zone ou code INSEE") autocomplete="off")
-										div#zone-search-results.list-group(style="position: absolute; z-index: 1000; width: 100%; max-height: 300px; overflow-y: auto; display: none; background: white; border: 1px solid #ddd; border-radius: 4px; margin-top: 2px;")
-									div.col-md-4.mb-2
-										button.btn.btn-primary.btn-block(type="submit")
-											i.fa.fa-search.mr-2
-											= __("Rechercher")
 					
 					div.row.mb-4#zone-stats-blocks
 						div.col.text-center
@@ -101,6 +87,9 @@ block content
 								button#zone-josm-btn.btn.btn-primary(type="button")
 									i.fa.fa-edit.mr-2
 									= __("Ouvrir dans JOSM")
+								button#zone-overpass-btn.btn.btn-info(type="button")
+									i.fa.fa-external-link-alt.mr-2
+									= __("Voir dans Overpass Turbo")
 								button#zone-csv-btn.btn.btn-secondary(type="button")
 									i.fa.fa-download.mr-2
 									= __("Exporter en CSV")
@@ -118,6 +107,22 @@ block content
 										= __("Exemple pour une ville ou un département :")
 									code
 										= `curl "${CONFIG.OSM_URL.replace('https://www.openstreetmap.org', '')}/projects/${project.id}/zones/${boundary.id}/stats"`
+
+					div.row.mb-4
+						div.col-12
+							h3= __("Rechercher une autre zone")
+							div.card
+								div.card-body
+									p.card-text= __("Recherchez une ville, un département ou une région par son nom ou son code INSEE")
+									form#zone-search-form
+										div.form-row
+											div.col-md-8.mb-2(style="position: relative;")
+												input.form-control#zone-search-input(type="text" placeholder=__("Nom de la zone ou code INSEE") autocomplete="off")
+												div#zone-search-results.list-group(style="position: absolute; z-index: 1000; width: 100%; max-height: 300px; overflow-y: auto; display: none; background: white; border: 1px solid #ddd; border-radius: 4px; margin-top: 2px;")
+											div.col-md-4.mb-2
+												button.btn.btn-primary.btn-block(type="submit")
+													i.fa.fa-search.mr-2
+													= __("Rechercher")
 
 	script.
 		const projectId = !{JSON.stringify(project.id)};
@@ -254,6 +259,60 @@ block content
 					document.getElementById("zone-other-projects").classList.add("d-none");
 				}
 
+				// Helper function to build Overpass query for Overpass Turbo
+				function buildOverpassQuery(boundaryId, projectTagFilter) {
+					const tagParts = projectTagFilter.split('=');
+					const filterParts = projectTagFilter.split('/');
+					const elementType = filterParts[0] || 'nwr'; // n, w, r, or nwr
+					const tagKey = tagParts[0] ? tagParts[0].split('/').pop() : '';
+					const tagValue = tagParts[1] || '';
+					
+					// Build Overpass query to get all objects in the boundary with project tags
+					let overpassQuery = '';
+					
+					if(tagKey && tagValue) {
+						// Determine which element types to query based on filter
+						const queries = [];
+						if(elementType.includes('n')) {
+							queries.push('node["' + tagKey + '"="' + tagValue + '"](area);');
+						}
+						if(elementType.includes('w')) {
+							queries.push('way["' + tagKey + '"="' + tagValue + '"](area);');
+						}
+						if(elementType.includes('r')) {
+							queries.push('relation["' + tagKey + '"="' + tagValue + '"](area);');
+						}
+						
+						if(queries.length > 0) {
+							overpassQuery = '[out:json][timeout:25];\n' +
+								'(\n' +
+								'  relation(' + boundaryId + ');\n' +
+								');\n' +
+								'map_to_area;\n' +
+								'(\n' +
+								'  ' + queries.join('  ') + '\n' +
+								');\n' +
+								'out geom;';
+						} else {
+							// Fallback if no valid element type
+							overpassQuery = '[out:json][timeout:25];\n' +
+								'(\n' +
+								'  relation(' + boundaryId + ');\n' +
+								');\n' +
+								'out geom;';
+						}
+					} else {
+						// If no tag filter, just get the boundary
+						overpassQuery = '[out:json][timeout:25];\n' +
+							'(\n' +
+							'  relation(' + boundaryId + ');\n' +
+							');\n' +
+							'out geom;';
+					}
+					
+					return overpassQuery;
+				}
+
 				// JOSM button
 				document.getElementById("zone-josm-btn").addEventListener("click", () => {
 					const tagParts = projectTagFilter.split('=');
@@ -268,6 +327,14 @@ block content
 					
 					const josmUrl = `http://localhost:8111/import?url=${encodeURIComponent(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`)}`;
 					window.open(josmUrl, '_blank');
+				});
+
+				// Overpass Turbo button
+				document.getElementById("zone-overpass-btn").addEventListener("click", () => {
+					const overpassQuery = buildOverpassQuery(boundaryId, projectTagFilter);
+					// Overpass Turbo accepts queries via Q parameter
+					const overpassTurboUrl = `https://overpass-turbo.eu/?Q=${encodeURIComponent(overpassQuery)}&R`;
+					window.open(overpassTurboUrl, '_blank');
 				});
 
 				// CSV export button

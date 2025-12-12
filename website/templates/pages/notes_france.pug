@@ -19,50 +19,110 @@ block content
 		div.container
 			div.row
 				div.col-12.mb-4
-					h2= __("Évolution des notes")
+					div.d-flex.justify-content-between.align-items-center.mb-3
+						h2.mb-0= __("Évolution des notes")
+						div.form-group.mb-0
+							label.sr-only(for="boundary-select")= __("Sélectionner des zones")
+							select#boundary-select.form-control.form-control-sm(multiple style="min-width: 300px; max-height: 100px;")
+								option(value="")= __("Chargement des zones...")
 					div(style="position: relative;")
 						div.spinner-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
 						canvas#notes-chart.w-100(height="400")
 						a(href="https://www.openstreetmap.org" target="_blank" style="position: absolute; bottom: 50px; left: 10px; z-index: 1000; opacity: 0.8; pointer-events: auto;")
 							img(src="https://wiki.openstreetmap.org/w/images/7/79/Public-images-osm_logo.svg" alt="OpenStreetMap" style="height: 30px;")
+					p.small.text-muted.mt-2
+						i.fa.fa-info-circle.mr-1
+						= __("Sélectionnez une ou plusieurs zones pour voir leur évolution. Par défaut, le graphique affiche les données globales de la France.")
 
 	script.
 		const chartData = !{JSON.stringify(chartData)};
+		let myChart = null;
+		const numberFormat = new Intl.NumberFormat('fr-FR');
 		
-		if(chartData && chartData.length > 0) {
+		// Couleurs pour les différentes zones
+		const colors = [
+			{ border: "#F44336", fill: "rgba(244, 67, 54, 0.2)" },
+			{ border: "#4CAF50", fill: "rgba(76, 175, 80, 0.2)" },
+			{ border: "#2196F3", fill: "rgba(33, 150, 243, 0.2)" },
+			{ border: "#FF9800", fill: "rgba(255, 152, 0, 0.2)" },
+			{ border: "#9C27B0", fill: "rgba(156, 39, 176, 0.2)" },
+			{ border: "#00BCD4", fill: "rgba(0, 188, 212, 0.2)" },
+			{ border: "#795548", fill: "rgba(121, 85, 72, 0.2)" },
+			{ border: "#607D8B", fill: "rgba(96, 125, 139, 0.2)" }
+		];
+		
+		function updateChart(data, boundaries = null) {
 			const ctx = document.getElementById("notes-chart").getContext("2d");
 			const spinner = document.querySelector(".spinner-charts");
-			if(spinner) spinner.classList.add("d-none");
 			
-			const myChart = new Chart(ctx, {
+			if (!data || data.length === 0) {
+				if (spinner) spinner.classList.add("d-none");
+				document.getElementById("notes-chart").parentElement.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+				return;
+			}
+			
+			if (spinner) spinner.classList.add("d-none");
+			
+			let datasets = [];
+			
+			if (boundaries && boundaries.length > 0) {
+				// Afficher les données par zone
+				boundaries.forEach((boundary, index) => {
+					const color = colors[index % colors.length];
+					datasets.push({
+						label: boundary.name + " - " + "#{__('Notes ouvertes')}",
+						data: boundary.data.map(d => ({ t: d.t, y: d.open })),
+						fill: true,
+						borderColor: color.border,
+						backgroundColor: color.fill,
+						lineTension: 0
+					});
+					datasets.push({
+						label: boundary.name + " - " + "#{__('Notes fermées')}",
+						data: boundary.data.map(d => ({ t: d.t, y: d.closed })),
+						fill: true,
+						borderColor: color.border,
+						backgroundColor: color.fill,
+						lineTension: 0,
+						borderDash: [5, 5]
+					});
+				});
+			} else {
+				// Afficher les données globales
+				datasets = [
+					{
+						label: "#{__('Notes ouvertes')}",
+						data: data.map(d => ({ t: d.t, y: d.open })),
+						fill: true,
+						borderColor: "#F44336",
+						backgroundColor: "rgba(244, 67, 54, 0.2)",
+						lineTension: 0
+					},
+					{
+						label: "#{__('Notes fermées')}",
+						data: data.map(d => ({ t: d.t, y: d.closed })),
+						fill: true,
+						borderColor: "#4CAF50",
+						backgroundColor: "rgba(76, 175, 80, 0.2)",
+						lineTension: 0
+					},
+					{
+						label: "#{__('Total')}",
+						data: data.map(d => ({ t: d.t, y: d.total })),
+						fill: false,
+						borderColor: "#2196F3",
+						lineTension: 0
+					}
+				];
+			}
+			
+			if (myChart) {
+				myChart.destroy();
+			}
+			
+			myChart = new Chart(ctx, {
 				type: "line",
-				data: {
-					datasets: [
-						{
-							label: "#{__('Notes ouvertes')}",
-							data: chartData.map(d => ({ t: d.t, y: d.open })),
-							fill: true,
-							borderColor: "#F44336",
-							backgroundColor: "rgba(244, 67, 54, 0.2)",
-							lineTension: 0
-						},
-						{
-							label: "#{__('Notes fermées')}",
-							data: chartData.map(d => ({ t: d.t, y: d.closed })),
-							fill: true,
-							borderColor: "#4CAF50",
-							backgroundColor: "rgba(76, 175, 80, 0.2)",
-							lineTension: 0
-						},
-						{
-							label: "#{__('Total')}",
-							data: chartData.map(d => ({ t: d.t, y: d.total })),
-							fill: false,
-							borderColor: "#2196F3",
-							lineTension: 0
-						}
-					]
-				},
+				data: { datasets: datasets },
 				options: {
 					responsive: true,
 					scales: {
@@ -77,7 +137,7 @@ block content
 							ticks: {
 								beginAtZero: true,
 								callback: function(value) {
-									return new Intl.NumberFormat('fr-FR').format(value);
+									return numberFormat.format(value);
 								}
 							}
 						}]
@@ -88,10 +148,68 @@ block content
 					}
 				}
 			});
+		}
+		
+		// Initialiser le graphique avec les données globales
+		if(chartData && chartData.length > 0) {
+			updateChart(chartData);
 		} else {
 			document.querySelector(".spinner-charts").classList.add("d-none");
 			document.getElementById("notes-chart").parentElement.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
 		}
+		
+		// Charger la liste des zones disponibles
+		const boundarySelect = document.getElementById("boundary-select");
+		fetch('/api/notes-france/boundaries/list')
+			.then(res => res.json())
+			.then(data => {
+				boundarySelect.innerHTML = '<option value="">' + "#{__('Toutes les zones (données globales)')}" + '</option>';
+				if (data.boundaries && data.boundaries.length > 0) {
+					data.boundaries.forEach(boundary => {
+						const option = document.createElement('option');
+						option.value = boundary.boundary;
+						option.textContent = boundary.name + ' (niveau ' + boundary.admin_level + ')';
+						option.dataset.adminLevel = boundary.admin_level;
+						boundarySelect.appendChild(option);
+					});
+				}
+			})
+			.catch(err => {
+				console.error('Error loading boundaries:', err);
+				boundarySelect.innerHTML = '<option value="">' + "#{__('Erreur lors du chargement des zones')}" + '</option>';
+			});
+		
+		// Gérer la sélection de zones
+		boundarySelect.addEventListener('change', function() {
+			const selectedBoundaries = Array.from(this.selectedOptions)
+				.map(opt => opt.value)
+				.filter(val => val !== '');
+			
+			if (selectedBoundaries.length === 0) {
+				// Afficher les données globales
+				updateChart(chartData);
+			} else {
+				// Charger les données pour les zones sélectionnées
+				const spinner = document.querySelector(".spinner-charts");
+				if (spinner) {
+					spinner.classList.remove("d-none");
+				}
+				
+				fetch('/api/notes-france/boundaries?boundaries=' + selectedBoundaries.join(','))
+					.then(res => res.json())
+					.then(data => {
+						if (data.boundaries && data.boundaries.length > 0) {
+							updateChart(null, data.boundaries);
+						} else {
+							updateChart([]);
+						}
+					})
+					.catch(err => {
+						console.error('Error loading boundary data:', err);
+						updateChart([]);
+					});
+			}
+		});
 
 	div.container-fluid.py-5
 		div.container

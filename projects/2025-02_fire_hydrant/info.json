@@ -24,6 +24,27 @@
   },
   "datasources": [
     {
+      "source": "osmose",
+      "item": "8421",
+      "country": "france*",
+      "name": "Borne incendie à compléter",
+      "description": "Cette borne incendie existe déjà dans OSM, mais il lui manque des informations (type, diamètre, etc.). Vérifiez les infos proposées puis ajoutez-les à OSM.",
+      "color": "#4A148C",
+      "buttons": {
+        "edit": "Compléter cette borne incendie"
+      }
+    },
+    {
+      "source": "osmose",
+      "item": "8420",
+      "country": "france*",
+      "name": "Borne incendie à ajouter",
+      "description": "Cette borne incendie existe dans les données officielles mais manque dans OSM. Vérifiez sa position et ses infos, puis ajoutez-la à OSM.",
+      "buttons": {
+        "add": "Intégrer cette borne incendie"
+      }
+    },
+    {
       "source": "notes",
       "name": "Borne incendie à intégrer",
       "description": "Une personne a créé une note ici, vérifiez puis éditez OSM pour intégrer les informations.",
@@ -52,7 +73,8 @@
     }
   ],
   "statistics": {
-    "count": true
+    "count": true,
+    "osmose_tasks": "bornes incendie complétées/intégrées"
   },
   "geographic_zone": "France",
   "icon": "/images/projects/fire_hydrant.png",
