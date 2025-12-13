@@ -735,6 +735,7 @@ if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 import sys
 import csv
 import json
+import re
 
 project = '${project.id}'
 reader = csv.reader(sys.stdin)
@@ -764,15 +765,14 @@ for row in reader:
 	except json.JSONDecodeError:
 		# If JSON parsing fails, try to rebuild from the XSLT format
 		# The XSLT format is: "key":"value","key2":"value2"
-		import re
 		try:
 			# Extract key-value pairs from XSLT format: "key":"value"
 			# Handle escaped quotes in values
 			pairs = []
-			pattern = r'"([^"]+)":"([^"]*(?:\\.[^"]*)*)"'
+			pattern = r'\"([^\"]+)\":\"([^\"]*(?:\\\\.[^\"]*)*)\"'
 			for match in re.finditer(pattern, tags_str):
 				key = match.group(1)
-				value = match.group(2).replace('\\"', '"')
+				value = match.group(2).replace('\\\\"', '"')
 				pairs.append((key, value))
 			if pairs:
 				tags = dict(pairs)
@@ -801,6 +801,7 @@ for row in reader:
 import sys
 import csv
 import json
+import re
 
 project = '${project.id}'
 reader = csv.reader(sys.stdin)
@@ -829,15 +830,14 @@ for row in reader:
 	except json.JSONDecodeError:
 		# If JSON parsing fails, try to rebuild from the XSLT format
 		# The XSLT format is: "key":"value","key2":"value2"
-		import re
 		try:
 			# Extract key-value pairs from XSLT format: "key":"value"
 			# Handle escaped quotes in values
 			pairs = []
-			pattern = r'"([^"]+)":"([^"]*(?:\\.[^"]*)*)"'
+			pattern = r'\"([^\"]+)\":\"([^\"]*(?:\\\\.[^\"]*)*)\"'
 			for match in re.finditer(pattern, tags_str):
 				key = match.group(1)
-				value = match.group(2).replace('\\"', '"')
+				value = match.group(2).replace('\\\\"', '"')
 				pairs.append((key, value))
 			if pairs:
 				tags = dict(pairs)
