@@ -98,161 +98,55 @@ fi
 
 # Ne télécharger que si le fichier n'existe pas vraiment ou a été supprimé
 if [ -z "$prev_osh" ] || [ ! -f "${OSH_UPDATED}" ] || [ ! -s "${OSH_UPDATED}" ]; then
-	echo "== Get cookies for authorized download of OSH PBF file"
+	echo "== Download OSH PBF file with OSM authentication"
+	echo "   => Using Python download script for better error handling"
+	echo "   => URL: ${CONFIG.OSH_PBF_URL}"
 	
-	# Tentative d'authentification avec retries en cas d'erreur 503
-	MAX_RETRIES=3
-	RETRY_DELAY=10
-	retry_count=0
-	auth_success=false
-	AUTH_OUTPUT="${CONFIG.WORK_DIR}/auth_output.log"
-	
-	while [ $retry_count -lt $MAX_RETRIES ]; do
-		rm -f "\${AUTH_OUTPUT}" "${COOKIES}"
-		auth_output=$(python3 ${__dirname}/../lib/sendfile_osm_oauth_protector/oauth_cookie_client.py \\
-			--osm-host ${CONFIG.OSM_URL} \\
-			-u "${CONFIG.OSM_USER}" -p "${CONFIG.OSM_PASS}" \\
-			-c ${CONFIG.OSH_PBF_URL.split("/").slice(0, 3).join("/")}/get_cookie \\
-			-o "${COOKIES}" 2>&1)
-		auth_exit_code=$?
-		echo "\$auth_output" > "\${AUTH_OUTPUT}"
-		
-		if [ $auth_exit_code -eq 0 ]; then
-			auth_success=true
-			break
-		else
-			retry_count=$((retry_count + 1))
-			# Vérifier si c'est une erreur 503 (service temporairement indisponible)
-			if echo "\$auth_output" | grep -q "HTTP code 503"; then
-				if [ $retry_count -lt $MAX_RETRIES ]; then
-					echo "   ⚠️  OSM service temporarily unavailable (503). Retrying in \${RETRY_DELAY} seconds... (attempt \$retry_count/\$MAX_RETRIES)"
-					sleep $RETRY_DELAY
-					continue
-				else
-					echo "ERROR: OSM service is temporarily unavailable (HTTP 503)."
-					echo "This is usually a temporary issue with the OSM servers."
-					echo "Please try again in a few minutes."
-					rm -f "${COOKIES}" "\${AUTH_OUTPUT}"
-					exit 1
-				fi
-			fi
-		fi
-	done
-	
-	rm -f "\${AUTH_OUTPUT}"
-	
-	if [ "$auth_success" = "false" ]; then
-		echo "ERROR: Failed to obtain authentication cookie from OSM after $MAX_RETRIES attempts."
-		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
-		echo "The OSH PBF file requires OSM authentication to download."
-		rm -f "${COOKIES}"
-		exit 1
-	fi
-
-	if [ ! -f "${COOKIES}" ] || [ ! -s "${COOKIES}" ]; then
-		echo "ERROR: Cookie file is missing or empty. Authentication may have failed."
-		if [ -f "${COOKIES}" ]; then
-			echo "Saving cookie file content to ${COOKIES}.html for inspection..."
-			cp "${COOKIES}" "${COOKIES}.html"
-			echo "Attempting to open cookie file in Firefox..."
-			if command -v firefox >/dev/null 2>&1; then
-				firefox "file://${COOKIES}.html" 2>/dev/null &
-				echo "Cookie file opened in Firefox"
-			elif [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
-				xdg-open "file://${COOKIES}.html" 2>/dev/null &
-				echo "Cookie file opened in default browser"
-			else
-				echo "Could not open browser automatically. Please open manually: file://${COOKIES}.html"
-			fi
-		fi
-		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
-		rm -f "${COOKIES}"
+	# Use Python script to download with authentication
+	DOWNLOAD_SCRIPT="${__dirname}/download_osh_pbf.py"
+	if [ ! -f "$DOWNLOAD_SCRIPT" ]; then
+		echo "ERROR: Download script not found: $DOWNLOAD_SCRIPT"
 		exit 1
 	fi
 	
-	# Check if cookie file contains HTML (authentication failed)
-	if head -1 "${COOKIES}" | grep -qi "<!DOCTYPE html\|<html"; then
-		echo "ERROR: Cookie file contains HTML instead of a cookie. Authentication failed."
-		echo "Saving HTML response to ${HTML_ERROR_FILE_AUTH} for inspection..."
-		cp "${COOKIES}" "${HTML_ERROR_FILE_AUTH}"
-		echo ""
-		# Save the file path to a location accessible from host
-		if [ -d "/data/files/pdm" ]; then
-			cp "${HTML_ERROR_FILE_AUTH}" "/data/files/pdm/auth_error.html" 2>/dev/null || true
-			echo "File also saved to /data/files/pdm/auth_error.html (accessible from host)"
-		fi
-		echo ""
-		FILENAME=$(basename "${HTML_ERROR_FILE_AUTH}")
-		echo "Run this command on the host to open the error page in Firefox:"
-		echo "  docker-compose exec pdm cat ${HTML_ERROR_FILE_AUTH} > \${FILENAME} && firefox \${FILENAME}"
-		echo ""
-		echo "Or use the helper script:"
-		echo "  ./open_error_in_firefox.sh pdm ${HTML_ERROR_FILE_AUTH}"
-		echo ""
-		echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
-		rm -f "${COOKIES}"
-		exit 1
-	fi
-
-	echo "== Download OSH PBF file"
-	# Vérifier si le fichier existe déjà et est valide avant de télécharger
-	if [ -f "${OSH_UPDATED}" ] && [ -s "${OSH_UPDATED}" ]; then
-		file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
-		if ! echo "$file_type" | grep -qi "html\|text"; then
-			echo "   => OSH file already exists and appears valid: ${OSH_UPDATED}"
-			echo "   => Using wget -N to check for updates (will skip if file is up-to-date)..."
-		fi
-	fi
-	# wget -N ne retélécharge pas si le fichier existe déjà et est à jour selon les en-têtes HTTP
-	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" -O "${OSH_UPDATED}" "${CONFIG.OSH_PBF_URL}" 2>&1; then
+	if ! python3 "$DOWNLOAD_SCRIPT" \\
+		--osm-host "${CONFIG.OSM_URL}" \\
+		--osm-user "${CONFIG.OSM_USER}" \\
+		--osm-pass "${CONFIG.OSM_PASS}" \\
+		--url "${CONFIG.OSH_PBF_URL}" \\
+		--output "${OSH_UPDATED}" \\
+		--work-dir "${CONFIG.WORK_DIR}" 2>&1; then
 		echo "ERROR: Failed to download OSH PBF file."
+		echo "URL attempted: ${CONFIG.OSH_PBF_URL}"
 		echo "This may be due to:"
 		echo "  - Invalid OSM credentials"
 		echo "  - Network connectivity issues"
 		echo "  - The OSH PBF URL is incorrect or inaccessible"
-		rm -f "${COOKIES}" "${OSH_UPDATED}"
+		echo ""
+		echo "Please verify the OSH_PBF_URL in your config.json file."
+		echo "For French regions, the URL structure is typically:"
+		echo "  https://osm-internal.download.geofabrik.de/europe/france/[region]-internal.osh.pbf"
+		echo "For Réunion, try:"
+		echo "  https://osm-internal.download.geofabrik.de/europe/france/reunion-internal.osh.pbf"
+		echo "  OR"
+		echo "  https://osm-internal.download.geofabrik.de/europe/reunion-internal.osh.pbf"
+		echo ""
+		echo "Note: OSH PBF files require OSM authentication. Make sure your OSM_USER and OSM_PASS are correct."
+		rm -f "${OSH_UPDATED}"
 		exit 1
 	fi
 
-	# Check if downloaded file is actually a PBF file (not an HTML error page)
-	if [ -f "${OSH_UPDATED}" ]; then
-		file_type=$(file -b "${OSH_UPDATED}" | head -c 20)
-		if echo "$file_type" | grep -qi "html\|text"; then
-			echo "ERROR: Downloaded file appears to be an HTML page instead of a PBF file."
-			echo "This usually means authentication failed. The file contains:"
-			head -5 "${OSH_UPDATED}"
-			echo ""
-			echo "Saving HTML response to ${HTML_ERROR_FILE_PBF} for inspection..."
-			cp "${OSH_UPDATED}" "${HTML_ERROR_FILE_PBF}"
-			echo ""
-			# Save the file path to a location accessible from host
-			if [ -d "/data/files/pdm" ]; then
-				cp "${HTML_ERROR_FILE_PBF}" "/data/files/pdm/pbf_download_error.html" 2>/dev/null || true
-				echo "File also saved to /data/files/pdm/pbf_download_error.html (accessible from host)"
-			fi
-			echo ""
-			FILENAME=$(basename "${HTML_ERROR_FILE_PBF}")
-			echo "Run this command on the host to open the error page in Firefox:"
-			echo "  docker-compose exec pdm cat ${HTML_ERROR_FILE_PBF} > \${FILENAME} && firefox \${FILENAME}"
-			echo ""
-			echo "Or use the helper script:"
-			echo "  ./open_error_in_firefox.sh pdm ${HTML_ERROR_FILE_PBF}"
-			echo ""
-			echo "Please check your OSM credentials in config.json (OSM_USER and OSM_PASS)."
-			rm -f "${COOKIES}" "${OSH_UPDATED}"
-			exit 1
-		fi
-		if [ ! -s "${OSH_UPDATED}" ]; then
-			echo "ERROR: Downloaded file is empty."
-			rm -f "${COOKIES}" "${OSH_UPDATED}"
-			exit 1
+	# Download polygon file if needed (no authentication required for .poly files)
+	POLY_URL="${CONFIG.OSH_PBF_URL.replace("-internal.osh.pbf", ".poly")}"
+	if ! wget -N -O "${OSH_POLY}" "$POLY_URL" 2>&1; then
+		echo "WARNING: Failed to download polygon file from $POLY_URL, but continuing with PBF file."
+		echo "   => Will try to download from Geofabrik public mirror instead..."
+		if ! wget -O "${OSH_POLY}" "https://download.geofabrik.de/europe/france.poly" 2>&1; then
+			echo "WARNING: Failed to download polygon file from Geofabrik public mirror as well."
+			echo "   => Continuing without polygon file (extraction step may fail if polygon is required)"
 		fi
 	fi
-
-	if ! wget -N --no-cookies --header "Cookie: $(cat ${COOKIES} | cut -d ';' -f 1)" -P "${CONFIG.WORK_DIR}" "${CONFIG.OSH_PBF_URL.replace("-internal.osh.pbf", ".poly")}" 2>&1; then
-		echo "WARNING: Failed to download polygon file, but continuing with PBF file."
-	fi
-	rm -f "${COOKIES}"
+	
 	prev_osh="${OSH_UPDATED}"
 	prev_timestamp=""
 fi
@@ -276,6 +170,14 @@ if [[ "$mode" != "fast" ]]; then
 		cp "$prev_osh" "${OSH_UPDATED_NEW}"
 	fi
 	echo "== Extract polygon data..."
+	# Check if the OSH file is for a specific region (like Réunion) or for the whole country
+	# If the URL contains a region name (not just "france"), skip polygon extraction
+	OSH_URL="${CONFIG.OSH_PBF_URL}"
+	if echo "$OSH_URL" | grep -q "reunion\|guadeloupe\|martinique\|guyane\|mayotte"; then
+		echo "   => Regional OSH file detected, skipping polygon extraction (file is already region-specific)"
+		cp "${OSH_UPDATED_NEW}" "${OSH_UPDATED}"
+	else
+		# For France métropolitaine, extract with polygon
 		# Ensure polygon file exists; download from Geofabrik if missing
 		if [ ! -f "${OSH_POLY}" ] || [ ! -s "${OSH_POLY}" ]; then
 			echo "   => Polygon file missing, downloading from Geofabrik..."
@@ -284,7 +186,8 @@ if [[ "$mode" != "fast" ]]; then
 				exit 1
 			fi
 		fi
-	osmium extract -p "${OSH_POLY}" --with-history -s complete_ways "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
+		osmium extract -p "${OSH_POLY}" --with-history -s complete_ways "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
+	fi
 	echo "== Remove temp files"
 	rm -f "${OSC_UPDATES}"
 	rm -f "${OSH_UPDATED_NEW}"

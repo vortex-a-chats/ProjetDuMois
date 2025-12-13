@@ -9,11 +9,14 @@ if datasources && Array.isArray(datasources)
 	if osmoseItems.length > 0
 		div.row.mb-3
 			div.col-12
-				div.btn-group(role="group")
-					each osmoseItem in osmoseItems
-						a.btn.btn-outline-primary(href=`${CONFIG.OSMOSE_URL}/fr/map/#item=${osmoseItem.item}` target="_blank" rel="noopener noreferrer")
-							i.fa.fa-external-link-alt.mr-2
-							= __("Voir sur Osmose") + " (" + osmoseItem.item + ")"
+				- var itemsList = osmoseItems.map(item => item.item).join(',')
+				- var itemsEncoded = encodeURIComponent(itemsList)
+				- var locParam = "&loc=10/46.0/2.5"
+				- var osmoseUrl = `${CONFIG.OSMOSE_URL}/fr/map/#item=${itemsEncoded}${locParam}`
+				- var itemsDisplay = osmoseItems.map(item => item.item).join(', ')
+				a.btn.btn-outline-primary(href=osmoseUrl target="_blank" rel="noopener noreferrer")
+					i.fa.fa-external-link-alt.mr-2
+					= __("Voir sur Osmose") + (osmoseItems.length > 1 ? " (" + itemsDisplay + ")" : " (" + itemsDisplay + ")")
 
 div.row
 	//- Leaderboard

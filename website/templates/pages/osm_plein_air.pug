@@ -5,9 +5,18 @@ block head
 	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
 
 block navbar
-	a(href="/")
-		i.fa.fa-home(title=__("Accueil"))
-		span= __("Accueil")
+	a(href="/#others")
+		i.fa.fa-file-download(title=__("Les projets"))
+		span= __("Les projets")
+	a(href="/osm-plein-air")
+		i.fa.fa-mountain(title=__("OSM Plein Air"))
+		span= __("OSM Plein Air")
+	a(href="/notes-france")
+		i.fa.fa-sticky-note(title=__("Notes OSM"))
+		span= __("Notes OSM")
+	a(href="/about")
+		i.fa.fa-flag(title=__("À propos"))
+		span= __("À propos")
 
 block content
 	div.container

@@ -24,10 +24,9 @@ services:
     depends_on:
       pgsqldb:
         condition: service_healthy
-    networks:
-      - oim-internal
-    ports:
-      - "3000:3000"
+    network_mode: host
+    # Keep connection to database via host network
+    # DB_URL will use pgsqldb hostname which resolves via /etc/hosts or docker network
     volumes:
       - pdm-data:/data/files/pdm
       - ./projects:/opt/pdm/projects:ro
@@ -38,7 +37,13 @@ services:
       - ./lib:/opt/pdm/lib:ro
       - ./config.json:/opt/pdm/config.json:ro
     environment:
-      - DB_URL=postgres://postgres:pgpassword@pgsqldb:5432/pdm
+      - DB_URL=postgres://postgres:pgpassword@localhost:5432/pdm
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    dns_search: []
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["/bin/bash", "-c"]
     command: ["cd /opt/pdm && npm run start"]
 
@@ -61,3 +66,6 @@ volumes:
 
 networks:
   oim-internal:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"

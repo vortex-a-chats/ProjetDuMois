@@ -264,25 +264,22 @@ else
 	echo "   ✓ osc2csv.xslt found at $OSC2CSV"
 fi
 
-# Vérifier que le fichier OSH existe et a une taille valide (au moins 8 Go)
+# Vérifier que le fichier OSH existe
 if [ ! -f "${OSH_UPDATED}" ]; then
 	echo "ERROR: OSH file not found: ${OSH_UPDATED}"
 	echo "Please run 'update_pbf' first to download and update the OSH file."
 	exit 1
 fi
 
-# Vérifier la taille du fichier (au moins 8 Go = 8 * 1024 * 1024 * 1024 = 8589934592 bytes)
+# Afficher la taille du fichier (sans contrôle de taille minimale)
 OSH_SIZE=$(stat -f%z "${OSH_UPDATED}" 2>/dev/null || stat -c%s "${OSH_UPDATED}" 2>/dev/null || echo "0")
-MIN_SIZE=8589934592
-if [ "$OSH_SIZE" -lt "$MIN_SIZE" ] 2>/dev/null; then
-	echo "ERROR: OSH file is too small (\$OSH_SIZE bytes, expected at least \$MIN_SIZE bytes = 8 GB)"
-	echo "The OSH file appears to be corrupted or incomplete."
-	echo "Please run 'update_pbf' again to download a complete OSH file."
-	exit 1
+OSH_SIZE_MB=$((OSH_SIZE / 1024 / 1024))
+if [ "$OSH_SIZE_MB" -gt 1024 ]; then
+	OSH_SIZE_GB=$(echo "scale=2; \$OSH_SIZE / 1024 / 1024 / 1024" | bc)
+	echo "✓ OSH file found: \$OSH_SIZE_GB GB"
+else
+	echo "✓ OSH file found: \$OSH_SIZE_MB MB"
 fi
-
-OSH_SIZE_GB=$(echo "scale=2; \$OSH_SIZE / 1024 / 1024 / 1024" | bc)
-echo "✓ OSH file size check passed: \$OSH_SIZE_GB GB"
 ${separator}
 `;
 
@@ -290,7 +287,6 @@ projectsToProcess.forEach(project => {
 	let oshInput = OSH_UPDATED;
 	const oshProject = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}`);
 	const oshFiltered = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}.filtered`);
-	const oshUsefull = OSH_USEFULL.replace("usefull", `${project.id.split("_").pop()}.usefull`);
 	const days = getProjectDays(project);
 
 	let tagFilterParts = project.database.osmium_tag_filter.split("&");
@@ -357,7 +353,7 @@ rm -f "\${TMP_OSC}"
 # Single tag filter - use pipe to avoid creating intermediate file
 echo "   => Applying tag filter: ${tagFilterParts[0]}"
 echo "   => Converting OSH to OSC format (using pipe, no intermediate file)..."
-if osmium tags-filter "${OSH_UPDATED}" ${tagFilterParts[0]} -O -f osh.pbf 2>&1 | osmium export - -f osc -O -o "\${TMP_OSC}" 2>&1; then
+if osmium tags-filter "${OSH_UPDATED}" ${tagFilterParts[0]} -O -f osh.pbf 2>&1 | osmium export - --input-format=osh.pbf --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
 	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
 		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
@@ -412,7 +408,7 @@ fi
 if [ "\${FILTER_FAILED:-false}" != "true" ]; then
 	# Convert filtered OSH to OSC
 	echo "   => Converting filtered OSH to OSC format..."
-	if osmium export "\${TMP_INPUT}" -f osc -O -o "\${TMP_OSC}" 2>&1; then
+	if osmium export "\${TMP_INPUT}" --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
 		if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 			OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
 			echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
@@ -438,7 +434,7 @@ fi
 		script += `
 # No tag filters - convert OSH to OSC directly
 echo "   => Converting OSH to OSC format (no tag filters)..."
-if osmium export "${OSH_UPDATED}" -f osc -O -o "\${TMP_OSC}" 2>&1; then
+if osmium export "${OSH_UPDATED}" --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
 	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
 		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
@@ -456,6 +452,7 @@ fi
 `;
 	}
 
+	script += `
 # Convert OSC to CSV if OSC file exists
 if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 	# Extract osmid from type/id format (e.g., "node/123" -> "123") and add project column
@@ -608,50 +605,53 @@ for day in "\${days[@]}"; do
 	fi
 	
 	echo "Processing \${day}"
-	# Check if usefull file exists and has content before processing
-	if [ ! -f "${oshUsefull}" ] || [ ! -s "${oshUsefull}" ]; then
-		echo "   ⚠️  Usefull file is empty or missing, skipping count for \${day}"
-		nbday="0"
-	else
-		if osmium time-filter "${oshUsefull}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osm.pbf 2>/dev/null; then
-			if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
-				`;
+	# Apply time-filter first on the full OSH file, then apply tag filters
+	# This is more efficient and works better with small regions
+	if osmium time-filter "${OSH_UPDATED}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osh.pbf 2>/dev/null; then
+		if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
+			`;
 	let tagFilterLastPart = tagFilterParts.pop();
 	tagFilterParts.forEach(tagFilter => {
 		script += `
-				if osmium tags-filter "${osmStats}" ${tagFilter} --no-progress -O -o "${osmStatsFiltered}" 2>/dev/null; then
-					if [ -f "${osmStatsFiltered}" ] && [ -s "${osmStatsFiltered}" ]; then
-						mv "${osmStatsFiltered}" "${osmStats}"
-					else
-						echo "   ⚠️  Filtered file is empty, skipping"
-						rm -f "${osmStats}" "${osmStatsFiltered}"
-						nbday="0"
-					fi
+			if osmium tags-filter "${osmStats}" ${tagFilter} --no-progress -O -o "${osmStatsFiltered}" -f osh.pbf 2>/dev/null; then
+				if [ -f "${osmStatsFiltered}" ] && [ -s "${osmStatsFiltered}" ]; then
+					mv "${osmStatsFiltered}" "${osmStats}"
 				else
-					echo "   ⚠️  Failed to filter, skipping"
+					echo "   ⚠️  Filtered file is empty, skipping"
 					rm -f "${osmStats}" "${osmStatsFiltered}"
 					nbday="0"
 				fi
-				`;
+			else
+				echo "   ⚠️  Failed to filter, skipping"
+				rm -f "${osmStats}" "${osmStatsFiltered}"
+				nbday="0"
+			fi
+			`;
 	});
 
 	script += `
-				if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
-					nbday=$(osmium tags-count "${osmStats}" --no-progress -F osm.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
-					if [ "$nbday" == "" ]; then
-						nbday="0"
-					fi
+			if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
+				# Convert to OSM format for counting
+				if osmium export "${osmStats}" -f osm.pbf -O -o "${osmStats}.osm.pbf" 2>/dev/null; then
+					nbday=$(osmium tags-count "${osmStats}.osm.pbf" --no-progress -F osm.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+					rm -f "${osmStats}.osm.pbf"
 				else
+					# Fallback: try counting directly on OSH file
+					nbday=$(osmium tags-count "${osmStats}" --no-progress -F osh.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+				fi
+				if [ "$nbday" == "" ]; then
 					nbday="0"
 				fi
 			else
-				echo "   ⚠️  OSM stats file is empty or missing, skipping count for \${day}"
 				nbday="0"
 			fi
 		else
-			echo "   ⚠️  Failed to filter by time, skipping count for \${day}"
+			echo "   ⚠️  OSM stats file is empty or missing after time-filter, skipping count for \${day}"
 			nbday="0"
 		fi
+	else
+		echo "   ⚠️  Failed to filter by time, skipping count for \${day}"
+		nbday="0"
 	fi
 
 	# Insérer ou mettre à jour la mesure (ON CONFLICT permet de mettre à jour si on force le recalcul)

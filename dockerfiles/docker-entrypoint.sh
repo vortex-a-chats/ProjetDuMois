@@ -22,56 +22,201 @@ AVAILABLE_COMMANDS=(
     "help: Show this help message"
 )
 
+# Function to update config.json with a new value
+update_config_json() {
+    local config_file="./config.json"
+    local key=$1
+    local value=$2
+    
+    # Créer un script Node.js temporaire pour mettre à jour le fichier
+    local temp_script=$(mktemp)
+    cat > "$temp_script" <<NODEJS
+const fs = require('fs');
+const configFile = '$config_file';
+const key = '$key';
+const value = process.argv[1];
+
+let config = {};
+try {
+    if (fs.existsSync(configFile)) {
+        config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    }
+} catch (e) {
+    // Si le fichier n'existe pas ou est invalide, on crée un nouveau config
+}
+
+config[key] = value;
+fs.writeFileSync(configFile, JSON.stringify(config, null, '\t') + '\n');
+NODEJS
+    
+    # Exécuter le script avec la valeur comme argument
+    node "$temp_script" "$value"
+    rm -f "$temp_script"
+}
+
+# Function to prompt for missing config values interactively
+prompt_missing_config() {
+    local config_file="./config.json"
+    local needs_update=false
+    
+    echo ""
+    echo "🔧 Configuration interactive"
+    echo "Certaines variables essentielles manquent dans config.json"
+    echo "Veuillez les remplir pour continuer :"
+    echo ""
+    
+    # Check and prompt for OSM_USER
+    local osm_user=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_USER || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+    if [ -z "$osm_user" ] || [ "$osm_user" = "user" ]; then
+        echo -n "OSM_USER (nom d'utilisateur OSM) : "
+        read -r osm_user
+        if [ -n "$osm_user" ]; then
+            update_config_json "OSM_USER" "$osm_user"
+            needs_update=true
+        fi
+    fi
+    
+    # Check and prompt for OSM_PASS
+    local osm_pass=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_PASS || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+    if [ -z "$osm_pass" ] || [ "$osm_pass" = "pass" ]; then
+        echo -n "OSM_PASS (mot de passe OSM) : "
+        read -s -r osm_pass
+        echo ""
+        if [ -n "$osm_pass" ]; then
+            update_config_json "OSM_PASS" "$osm_pass"
+            needs_update=true
+        fi
+    fi
+    
+    # Check and prompt for OSM_API_KEY
+    local osm_api_key=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_KEY || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+    if [ -z "$osm_api_key" ] || [ "$osm_api_key" = "key" ]; then
+        echo -n "OSM_API_KEY (optionnel, appuyez sur Entrée pour ignorer) : "
+        read -r osm_api_key
+        if [ -n "$osm_api_key" ] && [ "$osm_api_key" != "key" ]; then
+            update_config_json "OSM_API_KEY" "$osm_api_key"
+            needs_update=true
+        fi
+    fi
+    
+    # Check and prompt for OSM_API_SECRET
+    local osm_api_secret=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_SECRET || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+    if [ -z "$osm_api_secret" ] || [ "$osm_api_secret" = "secret" ]; then
+        echo -n "OSM_API_SECRET (optionnel, appuyez sur Entrée pour ignorer) : "
+        read -s -r osm_api_secret
+        echo ""
+        if [ -n "$osm_api_secret" ] && [ "$osm_api_secret" != "secret" ]; then
+            update_config_json "OSM_API_SECRET" "$osm_api_secret"
+            needs_update=true
+        fi
+    fi
+    
+    # Check and prompt for OSH_PBF_URL
+    local osh_pbf_url=$(node -e "try { const c = require('$config_file'); console.log(c.OSH_PBF_URL || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+    if [ -z "$osh_pbf_url" ]; then
+        echo -n "OSH_PBF_URL (URL du fichier OSH, ex: https://osm-internal.download.geofabrik.de/europe/france/region-internal.osh.pbf) : "
+        read -r osh_pbf_url
+        if [ -n "$osh_pbf_url" ]; then
+            update_config_json "OSH_PBF_URL" "$osh_pbf_url"
+            needs_update=true
+        fi
+    fi
+    
+    # Check DB_URL (only if not in environment)
+    if [ -z "$DB_URL" ]; then
+        local db_url=$(node -e "try { const c = require('$config_file'); console.log(c.DB_URL || ''); } catch(e) { console.log(''); }" 2>/dev/null)
+        if [ -z "$db_url" ] || echo "$db_url" | grep -q "@host:"; then
+            echo -n "DB_URL (URL de connexion PostgreSQL, ex: postgres://user:pass@host:5432/dbname) : "
+            read -r db_url
+            if [ -n "$db_url" ]; then
+                update_config_json "DB_URL" "$db_url"
+                needs_update=true
+            fi
+        fi
+    fi
+    
+    if [ "$needs_update" = "true" ]; then
+        echo ""
+        echo "✓ Configuration mise à jour"
+    fi
+    echo ""
+}
+
 # Function to validate config.json
 validate_config() {
     local config_file="./config.json"
     local errors=0
+    local missing_vars=()
     
+    # Créer le fichier config.json s'il n'existe pas avec une structure de base
     if [ ! -f "$config_file" ]; then
-        echo "ERROR: config.json file not found at $config_file"
-        return 1
+        echo "⚠️  config.json file not found at $config_file"
+        echo "Creating initial config.json from example..."
+        # Créer un config.json de base basé sur config.example.json
+        if [ -f "./config.example.json" ]; then
+            cp "./config.example.json" "$config_file"
+        else
+            # Créer un config.json minimal
+            node -e "
+            const fs = require('fs');
+            const defaultConfig = {
+                OSM_URL: 'https://www.openstreetmap.org',
+                OSMOSE_URL: 'https://osmose.openstreetmap.fr',
+                NOMINATIM_URL: 'https://nominatim.openstreetmap.org',
+                MAPILLARY_URL: 'https://www.mapillary.com',
+                MAPILLARY_API_KEY: 'yourtoken',
+                REPOSITORY_URL: 'https://github.com/vdct/ProjetDuMois',
+                JOSM_REMOTE_URL: 'http://localhost:8111',
+                WORK_DIR: '/tmp/pdm',
+                DB_USE_IMPOSM_UPDATE: true
+            };
+            fs.writeFileSync('$config_file', JSON.stringify(defaultConfig, null, '\t') + '\n');
+            "
+        fi
     fi
     
     echo "Validating config.json..."
     
     # Check OSM_USER
-    local osm_user=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_USER || ''); } catch(e) { console.log(''); }")
+    local osm_user=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_USER || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -z "$osm_user" ] || [ "$osm_user" = "user" ]; then
         echo "  ❌ OSM_USER is missing or has default value 'user'"
         errors=$((errors + 1))
+        missing_vars+=("OSM_USER")
     else
         echo "  ✓ OSM_USER is configured"
     fi
     
     # Check OSM_PASS
-    local osm_pass=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_PASS || ''); } catch(e) { console.log(''); }")
+    local osm_pass=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_PASS || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -z "$osm_pass" ] || [ "$osm_pass" = "pass" ]; then
         echo "  ❌ OSM_PASS is missing or has default value 'pass'"
         errors=$((errors + 1))
+        missing_vars+=("OSM_PASS")
     else
         echo "  ✓ OSM_PASS is configured"
     fi
     
     # Check OSM_API_KEY (if present)
-    local osm_api_key=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_KEY || ''); } catch(e) { console.log(''); }")
+    local osm_api_key=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_KEY || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -n "$osm_api_key" ] && [ "$osm_api_key" = "key" ]; then
         echo "  ⚠ OSM_API_KEY has default value 'key' (optional, but should be changed if used)"
-        errors=$((errors + 1))
+        missing_vars+=("OSM_API_KEY")
     elif [ -n "$osm_api_key" ]; then
         echo "  ✓ OSM_API_KEY is configured"
     fi
     
     # Check OSM_API_SECRET (if present)
-    local osm_api_secret=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_SECRET || ''); } catch(e) { console.log(''); }")
+    local osm_api_secret=$(node -e "try { const c = require('$config_file'); console.log(c.OSM_API_SECRET || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -n "$osm_api_secret" ] && [ "$osm_api_secret" = "secret" ]; then
         echo "  ⚠ OSM_API_SECRET has default value 'secret' (optional, but should be changed if used)"
-        errors=$((errors + 1))
+        missing_vars+=("OSM_API_SECRET")
     elif [ -n "$osm_api_secret" ]; then
         echo "  ✓ OSM_API_SECRET is configured"
     fi
     
     # Check MAPILLARY_API_KEY (if present)
-    local mapillary_key=$(node -e "try { const c = require('$config_file'); console.log(c.MAPILLARY_API_KEY || ''); } catch(e) { console.log(''); }")
+    local mapillary_key=$(node -e "try { const c = require('$config_file'); console.log(c.MAPILLARY_API_KEY || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -n "$mapillary_key" ] && [ "$mapillary_key" = "yourtoken" ]; then
         echo "  ⚠ MAPILLARY_API_KEY has default value 'yourtoken' (optional, but should be changed if used)"
     elif [ -n "$mapillary_key" ]; then
@@ -79,10 +224,11 @@ validate_config() {
     fi
     
     # Check OSH_PBF_URL
-    local osh_pbf_url=$(node -e "try { const c = require('$config_file'); console.log(c.OSH_PBF_URL || ''); } catch(e) { console.log(''); }")
+    local osh_pbf_url=$(node -e "try { const c = require('$config_file'); console.log(c.OSH_PBF_URL || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -z "$osh_pbf_url" ]; then
         echo "  ❌ OSH_PBF_URL is missing"
         errors=$((errors + 1))
+        missing_vars+=("OSH_PBF_URL")
     elif echo "$osh_pbf_url" | grep -q "reunion-internal.osh.pbf"; then
         echo "  ⚠ OSH_PBF_URL appears to use example value (reunion-internal.osh.pbf)"
         echo "     Make sure this is the correct region for your project"
@@ -91,31 +237,54 @@ validate_config() {
     fi
     
     # Check DB_URL (from config or env)
-    local db_url=$(node -e "try { const c = require('$config_file'); console.log(c.DB_URL || ''); } catch(e) { console.log(''); }")
+    local db_url=$(node -e "try { const c = require('$config_file'); console.log(c.DB_URL || ''); } catch(e) { console.log(''); }" 2>/dev/null)
     if [ -z "$db_url" ] && [ -z "$DB_URL" ]; then
         echo "  ❌ DB_URL is missing (neither in config.json nor in environment)"
         errors=$((errors + 1))
+        missing_vars+=("DB_URL")
     elif [ -n "$DB_URL" ]; then
         # Environment variable takes precedence
         if echo "$DB_URL" | grep -q "@host:"; then
             echo "  ❌ DB_URL in environment contains placeholder 'host' - should be actual database host"
             errors=$((errors + 1))
+            missing_vars+=("DB_URL")
         else
             echo "  ✓ DB_URL is configured from environment"
         fi
     elif [ -n "$db_url" ] && echo "$db_url" | grep -q "@host:"; then
         echo "  ❌ DB_URL in config.json contains placeholder 'host' - should be actual database host"
         errors=$((errors + 1))
+        missing_vars+=("DB_URL")
     else
         echo "  ✓ DB_URL is configured in config.json"
     fi
     
     echo ""
-    if [ $errors -gt 0 ]; then
-        echo "❌ ERROR: Found $errors critical issue(s) in config.json"
-        echo "Please update config.json with your actual values before running commands."
-        echo "See config.example.json for reference."
-        return 1
+    if [ $errors -gt 0 ] || [ ${#missing_vars[@]} -gt 0 ]; then
+        # Si on est en mode interactif (stdin disponible), demander les valeurs manquantes
+        if [ -t 0 ] && [ "$VALIDATE_RECURSIVE" != "true" ]; then
+            prompt_missing_config
+            # Re-valider après la mise à jour (une seule fois pour éviter la récursion infinie)
+            export VALIDATE_RECURSIVE=true
+            validate_config
+            local result=$?
+            unset VALIDATE_RECURSIVE
+            return $result
+        elif [ "$VALIDATE_RECURSIVE" = "true" ]; then
+            # Si on est déjà en récursion, vérifier seulement les erreurs critiques
+            if [ $errors -gt 0 ]; then
+                echo "❌ ERROR: Some critical configuration values are still missing after update"
+                return 1
+            else
+                echo "✓ Configuration updated, continuing..."
+                return 0
+            fi
+        else
+            echo "❌ ERROR: Found $errors critical issue(s) in config.json"
+            echo "Please update config.json with your actual values before running commands."
+            echo "See config.example.json for reference."
+            return 1
+        fi
     else
         echo "✓ All required configuration values are properly set"
         return 0
@@ -395,7 +564,7 @@ NODE
         exit 1
     fi
     
-    TAG_FILTER=$(echo "$PROJECT_INFO" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.tagFilter);")
+    TAG_FILTER=$(echo "$PROJECT_INFO" | node -e 'const d = JSON.parse(require("fs").readFileSync(0, "utf8")); console.log(d.tagFilter);')
     
     if [ -z "$TAG_FILTER" ]; then
         echo "ERROR: No osmium_tag_filter found for project $PROJECT_ID"

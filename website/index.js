@@ -2051,24 +2051,69 @@ app.get("/notes-france", (req, res) => {
     return res.redirect("/");
   }
 
-  pool
-    .query(
-      `
+  // Requête pour obtenir les données de comptage et calculer les notes créées et fermées
+  const statsQuery = pool.query(
+    `
+    WITH ordered_data AS (
       SELECT 
         ts,
         open as total_open,
         closed as total_closed,
-        (open + closed) as total
+        (open + closed) as total,
+        LAG((open + closed)) OVER (ORDER BY ts) as prev_total,
+        LAG(closed) OVER (ORDER BY ts) as prev_closed
       FROM pdm_note_counts_global
       ORDER BY ts ASC
-    `,
     )
-    .then((result) => {
-      const chartData = result.rows.map((r) => ({
+    SELECT 
+      ts,
+      total_open,
+      total_closed,
+      total,
+      GREATEST(0, total - COALESCE(prev_total, 0)) as created,
+      GREATEST(0, total_closed - COALESCE(prev_closed, 0)) as closed_daily
+    FROM ordered_data
+    WHERE ts >= NOW() - INTERVAL '30 days'
+    ORDER BY ts ASC
+  `,
+  );
+
+  // Récupérer les 10 dernières notes via l'API OSM
+  const notesQuery = fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,41.0,8.0,51.0&limit=10`)
+    .then(res => res.json())
+    .then(jsonData => {
+      const notes = (jsonData.features || []).map(feature => {
+        const props = feature.properties || {};
+        const comments = props.comments || [];
+        const firstComment = comments[0] || {};
+        return {
+          id: props.id,
+          lat: feature.geometry.coordinates[1],
+          lon: feature.geometry.coordinates[0],
+          status: props.status,
+          date_created: props.date_created,
+          date_closed: props.date_closed,
+          comment: firstComment.text || '',
+          comment_date: firstComment.date || props.date_created,
+          url: `https://www.openstreetmap.org/note/${props.id}`
+        };
+      });
+      return notes;
+    })
+    .catch((err) => {
+      console.error("Error fetching OSM notes:", err);
+      return [];
+    });
+
+  Promise.all([statsQuery, notesQuery])
+    .then(([statsResult, notes]) => {
+      const chartData = statsResult.rows.map((r) => ({
         t: r.ts,
         open: parseInt(r.total_open) || 0,
         closed: parseInt(r.total_closed) || 0,
         total: parseInt(r.total) || 0,
+        created: parseInt(r.created) || 0,
+        closed_daily: parseInt(r.closed_daily) || 0,
       }));
       
       // If JSON format requested
@@ -2079,6 +2124,7 @@ app.get("/notes-france", (req, res) => {
       res.render("pages/notes_france", {
         CONFIG,
         chartData,
+        recentNotes: notes,
       });
     })
     .catch((err) => {

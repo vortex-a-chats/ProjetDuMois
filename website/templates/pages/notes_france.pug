@@ -5,9 +5,18 @@ block head
 	script(src="/lib/chartjs-adapter-date-fns/chartjs-adapter-date-fns.bundle.min.js")
 
 block navbar
-	a(href="/")
-		i.fa.fa-home(title=__("Accueil"))
-		span= __("Accueil")
+	a(href="/#others")
+		i.fa.fa-file-download(title=__("Les projets"))
+		span= __("Les projets")
+	a(href="/osm-plein-air")
+		i.fa.fa-mountain(title=__("OSM Plein Air"))
+		span= __("OSM Plein Air")
+	a(href="/notes-france")
+		i.fa.fa-sticky-note(title=__("Notes OSM"))
+		span= __("Notes OSM")
+	a(href="/about")
+		i.fa.fa-flag(title=__("À propos"))
+		span= __("À propos")
 
 block content
 	div.container
@@ -15,6 +24,77 @@ block content
 			h1.font-italic= __("Surveillance des notes OSM en France")
 			p.lead.mb-0= __("Évolution quotidienne du nombre de notes ouvertes et fermées")
 
+	// Graphique des notes créées (30 derniers jours) - EN PREMIER
+	div.container-fluid.py-5.pdm-section-highlight
+		div.container
+			div.row
+				div.col-12.mb-4
+					h2.mb-3= __("Notes créées (30 derniers jours)")
+					div(style="position: relative;")
+						div.spinner-created-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+						canvas#notes-created-chart.w-100(height="300")
+					p.small.text-muted.mt-2
+						i.fa.fa-info-circle.mr-1
+						= __("Nombre de nouvelles notes créées chaque jour au cours des 30 derniers jours.")
+	
+	// Graphique des notes fermées (30 derniers jours)
+	div.container-fluid.py-5
+		div.container
+			div.row
+				div.col-12.mb-4
+					h2.mb-3= __("Notes fermées (30 derniers jours)")
+					div(style="position: relative;")
+						div.spinner-closed-charts.spinner-border.text-primary(role="status" style="width: 64px; height: 64px")
+						canvas#notes-closed-chart.w-100(height="300")
+					p.small.text-muted.mt-2
+						i.fa.fa-info-circle.mr-1
+						= __("Nombre de notes fermées chaque jour au cours des 30 derniers jours.")
+
+	// Tableau des notes les plus récentes
+	if recentNotes && recentNotes.length > 0
+		div.container-fluid.py-5.pdm-section-highlight
+			div.container
+				div.row
+					div.col-12
+						h2.mb-3= __("Notes les plus récentes")
+						div.table-responsive
+							table.table.table-striped.table-hover
+								thead.thead-dark
+									tr
+										th= __("ID")
+										th= __("Statut")
+										th= __("Contenu")
+										th= __("Date de création")
+										th= __("Date de fermeture")
+										th= __("Lien OSM")
+								tbody
+									each note in recentNotes
+										tr
+											td
+												strong= note.id
+											td
+												if note.status === 'open'
+													span.badge.badge-warning= __("Ouverte")
+												else
+													span.badge.badge-success= __("Fermée")
+											td
+												if note.comment
+													span.text-muted(style="max-width: 400px; display: inline-block;")= note.comment.substring(0, 100) + (note.comment.length > 100 ? '...' : '')
+												else
+													span.text-muted= __("Aucun commentaire")
+											td
+												small= new Date(note.date_created).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+											td
+												if note.date_closed
+													small= new Date(note.date_closed).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+												else
+													span.text-muted= __("-")
+											td
+												a.btn.btn-sm.btn-primary(href=note.url target="_blank" rel="noopener noreferrer")
+													i.fa.fa-external-link-alt.mr-1
+													= __("Voir")
+
+	// Graphique d'évolution des notes (existant)
 	div.container-fluid.py-5.pdm-section-highlight
 		div.container
 			div.row
@@ -37,7 +117,163 @@ block content
 	script.
 		const chartData = !{JSON.stringify(chartData)};
 		let myChart = null;
+		let createdChart = null;
+		let closedChart = null;
 		const numberFormat = new Intl.NumberFormat('fr-FR');
+		
+		// Fonction pour filtrer les 30 derniers jours
+		function getLast30DaysData(data, field) {
+			return data
+				.filter(d => {
+					const date = new Date(d.t);
+					const thirtyDaysAgo = new Date();
+					thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+					return date >= thirtyDaysAgo;
+				})
+				.map(d => ({ t: d.t, y: d[field] || 0 }));
+		}
+		
+		// Initialiser le graphique des notes créées (30 derniers jours)
+		function initCreatedChart() {
+			const ctx = document.getElementById("notes-created-chart");
+			if (!ctx) return;
+			
+			const spinner = document.querySelector(".spinner-created-charts");
+			if (!chartData || chartData.length === 0) {
+				if (spinner) spinner.classList.add("d-none");
+				ctx.parentElement.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+				return;
+			}
+			
+			const createdData = getLast30DaysData(chartData, 'created');
+			
+			if (spinner) spinner.classList.add("d-none");
+			
+			if (createdChart) {
+				createdChart.destroy();
+			}
+			
+			createdChart = new Chart(ctx.getContext("2d"), {
+				type: "bar",
+				data: {
+					datasets: [{
+						label: "#{__('Notes créées')}",
+						data: createdData,
+						backgroundColor: "rgba(33, 150, 243, 0.6)",
+						borderColor: "#2196F3",
+						borderWidth: 1
+					}]
+				},
+				options: {
+					responsive: true,
+					scales: {
+						xAxes: [{
+							type: 'time',
+							time: {
+								tooltipFormat: "DD/MM/YYYY",
+								displayFormats: { day: "DD/MM/YYYY" }
+							}
+						}],
+						yAxes: [{
+							ticks: {
+								beginAtZero: true,
+								callback: function(value) {
+									return numberFormat.format(value);
+								}
+							}
+						}]
+					},
+					legend: {
+						display: true,
+						position: 'bottom'
+					},
+					tooltips: {
+						callbacks: {
+							label: function(tooltipItem) {
+								return "#{__('Notes créées')}: " + numberFormat.format(tooltipItem.yLabel);
+							}
+						}
+					}
+				}
+			});
+		}
+		
+		// Initialiser le graphique des notes fermées (30 derniers jours)
+		function initClosedChart() {
+			const ctx = document.getElementById("notes-closed-chart");
+			if (!ctx) return;
+			
+			const spinner = document.querySelector(".spinner-closed-charts");
+			if (!chartData || chartData.length === 0) {
+				if (spinner) spinner.classList.add("d-none");
+				ctx.parentElement.innerHTML = '<p class="text-muted">Aucune donnée disponible</p>';
+				return;
+			}
+			
+			const closedData = getLast30DaysData(chartData, 'closed_daily');
+			
+			if (spinner) spinner.classList.add("d-none");
+			
+			if (closedChart) {
+				closedChart.destroy();
+			}
+			
+			closedChart = new Chart(ctx.getContext("2d"), {
+				type: "bar",
+				data: {
+					datasets: [{
+						label: "#{__('Notes fermées')}",
+						data: closedData,
+						backgroundColor: "rgba(76, 175, 80, 0.6)",
+						borderColor: "#4CAF50",
+						borderWidth: 1
+					}]
+				},
+				options: {
+					responsive: true,
+					scales: {
+						xAxes: [{
+							type: 'time',
+							time: {
+								tooltipFormat: "DD/MM/YYYY",
+								displayFormats: { day: "DD/MM/YYYY" }
+							}
+						}],
+						yAxes: [{
+							ticks: {
+								beginAtZero: true,
+								callback: function(value) {
+									return numberFormat.format(value);
+								}
+							}
+						}]
+					},
+					legend: {
+						display: true,
+						position: 'bottom'
+					},
+					tooltips: {
+						callbacks: {
+							label: function(tooltipItem) {
+								return "#{__('Notes fermées')}: " + numberFormat.format(tooltipItem.yLabel);
+							}
+						}
+					}
+				}
+			});
+		}
+		
+		// Initialiser les graphiques au chargement
+		function initCharts() {
+			initCreatedChart();
+			initClosedChart();
+		}
+		
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', initCharts);
+		} else {
+			initCharts();
+		}
 		
 		// Couleurs pour les différentes zones
 		const colors = [

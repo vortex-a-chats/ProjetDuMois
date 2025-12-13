@@ -16,6 +16,11 @@ const OUTPUT_SCRIPT = '/tmp/pdm/41_global_stats_update_tmp.sh';
 let script = `#!/bin/bash
 set -e
 
+# Créer le répertoire de log au début pour éviter les erreurs
+# Utiliser /tmp/pdm pour les logs car c'est accessible dans le conteneur Docker
+LOG_DIR="/tmp/pdm/.cursor"
+mkdir -p "$LOG_DIR"
+
 ${PSQL} -c "SELECT 1" > /dev/null 2>&1 || {
 	echo "ERROR: Cannot connect to database"
 	exit 1
@@ -104,7 +109,7 @@ else
 	
 	if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
 		SHOULD_DOWNLOAD=true
-		echo "   => Notes dump file is too small: ${FILE_SIZE_MB} MB (expected at least 300 MB), will re-download"
+		echo "   => Notes dump file is too small: \${FILE_SIZE_MB} MB (expected at least 300 MB), will re-download"
 	else
 		# Vérifier l'âge du fichier (24 heures = 86400 secondes)
 		FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_FILE" 2>/dev/null || echo 0)))
@@ -114,7 +119,7 @@ else
 			echo "   => Notes dump file is $FILE_AGE_HOURS hours old (older than 24h), will download"
 		else
 			FILE_AGE_HOURS=$((FILE_AGE / 3600))
-			echo "   => Using existing notes dump file (size: ${FILE_SIZE_MB} MB, age: $FILE_AGE_HOURS hours, less than 24h)"
+			echo "   => Using existing notes dump file (size: \${FILE_SIZE_MB} MB, age: $FILE_AGE_HOURS hours, less than 24h)"
 		fi
 	fi
 fi
@@ -137,7 +142,7 @@ if [ "$SHOULD_DOWNLOAD" = "true" ]; then
 	FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
 	
 	if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
-		echo "   ⚠️  Notes dump file is too small after download: ${FILE_SIZE_MB} MB (expected at least 300 MB)"
+		echo "   ⚠️  Notes dump file is too small after download: \${FILE_SIZE_MB} MB (expected at least 300 MB)"
 		echo "   => File may be corrupted or incomplete, removing and re-downloading..."
 		rm -f "$NOTES_DUMP_FILE"
 		echo "   => Re-downloading notes dump from planet.openstreetmap.org..."
@@ -149,22 +154,21 @@ if [ "$SHOULD_DOWNLOAD" = "true" ]; then
 		FILE_SIZE=$(stat -c%s "$NOTES_DUMP_FILE" 2>/dev/null || stat -f%z "$NOTES_DUMP_FILE" 2>/dev/null || echo "0")
 		FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
 		if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
-			echo "   ❌ Notes dump file is still too small after re-download: ${FILE_SIZE_MB} MB"
+			echo "   ❌ Notes dump file is still too small after re-download: \${FILE_SIZE_MB} MB"
 			echo "   ❌ The file on planet.openstreetmap.org may be corrupted or the download failed"
 			exit 1
 		fi
-		echo "   ✓ Notes dump file size OK after re-download: ${FILE_SIZE_MB} MB"
+		echo "   ✓ Notes dump file size OK after re-download: \${FILE_SIZE_MB} MB"
 	else
-		echo "   ✓ Notes dump file size OK: ${FILE_SIZE_MB} MB"
+		echo "   ✓ Notes dump file size OK: \${FILE_SIZE_MB} MB"
 	fi
 fi
 
 # Décompresser le dump avec Python (bz2 est intégré dans Python)
 # #region agent log
 SHOULD_DECOMPRESS=false
-LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
-mkdir -p "$(dirname "$LOG_FILE")"
-touch "$LOG_FILE"
+LOG_FILE="/tmp/pdm/.cursor/debug.log"
+touch "$LOG_FILE" 2>/dev/null || true
 if [ ! -f "$NOTES_DUMP_XML" ]; then
 	SHOULD_DECOMPRESS=true
 	echo "   => Decompressing notes dump (file missing)..."
@@ -234,11 +238,29 @@ else
 	echo "   => Using existing decompressed notes dump"
 fi
 
-# Parser directement le XML avec Node.js (osmium ne supporte pas les fichiers .osn)
-echo "   => Processing notes XML file (this may take a while)..."
+# Vérifier si le parsing a été fait il y a moins d'une heure
+NOTES_PARSE_TIMESTAMP_FILE="$TMP_NOTES_DIR/.notes_parse_timestamp"
+SHOULD_PARSE_NOTES=true
 
-# Utiliser Node.js pour parser le XML et compter les notes
-node - "$NOTES_DUMP_XML" "\${CURRENT_DATE}" <<'NODEJS'
+if [ -f "$NOTES_PARSE_TIMESTAMP_FILE" ]; then
+	LAST_PARSE_TIME=$(cat "$NOTES_PARSE_TIMESTAMP_FILE" 2>/dev/null || echo "0")
+	CURRENT_TIME=$(date +%s)
+	TIME_SINCE_LAST_PARSE=$((CURRENT_TIME - LAST_PARSE_TIME))
+	ONE_HOUR=3600
+	
+	if [ $TIME_SINCE_LAST_PARSE -lt $ONE_HOUR ]; then
+		SHOULD_PARSE_NOTES=false
+		MINUTES_SINCE=$((TIME_SINCE_LAST_PARSE / 60))
+		echo "   => Notes were parsed $MINUTES_SINCE minutes ago (less than 1 hour), skipping parsing"
+	fi
+fi
+
+if [ "$SHOULD_PARSE_NOTES" = "true" ]; then
+	# Parser directement le XML avec Node.js (osmium ne supporte pas les fichiers .osn)
+	echo "   => Processing notes XML file (this may take a while)..."
+	
+	# Utiliser Node.js pour parser le XML et compter les notes
+	node - "$NOTES_DUMP_XML" "\${CURRENT_DATE}" <<'NODEJS'
 const fs = require('fs');
 const { Pool } = require('pg');
 const DB_URL = process.env.DB_URL || '${DB_URL}';
@@ -436,7 +458,7 @@ async function processNotes() {
 		console.log(\`   => Found notes across \${notesByDate.size} different dates\`);
 		
 		// #region agent log
-		const LOG_FILE = '/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log';
+		const LOG_FILE = '/tmp/pdm/.cursor/debug.log';
 		const logDir = require('path').dirname(LOG_FILE);
 		if (!fs.existsSync(logDir)) {
 			fs.mkdirSync(logDir, { recursive: true });
@@ -583,12 +605,17 @@ async function processNotes() {
 processNotes();
 NODEJS
 
+	# Enregistrer le timestamp du parsing après un parsing réussi
+	echo "$(date +%s)" > "$NOTES_PARSE_TIMESTAMP_FILE"
+	echo "   => Notes parsing completed, timestamp saved"
+fi
+
 # Nettoyer les fichiers temporaires (garder le dump compressé pour éviter de le retélécharger)
 # Ne supprimer le fichier décompressé que s'il a plus de 24h pour éviter de le recréer à chaque exécution
 # #region agent log
-LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
-mkdir -p "$(dirname "$LOG_FILE")"
-touch "$LOG_FILE"
+LOG_FILE="/tmp/pdm/.cursor/debug.log"
+touch "$LOG_FILE" 2>/dev/null || true
+
 if [ -f "$NOTES_DUMP_XML" ]; then
 	XML_FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_XML" 2>/dev/null || echo 0)))
 	if [ $XML_FILE_AGE -gt 86400 ]; then
@@ -613,8 +640,7 @@ OSH_FILE="${OSH_UPDATED}"
 if [ ! -f "$OSH_FILE" ]; then
 	echo "   ⚠️  OSH file not found: $OSH_FILE"
 	echo "   ⚠️  Skipping hiking routes extraction. Run update_pbf first."
-	exit 0
-fi
+else
 
 # Extraire les relations de type=route et route=hiking depuis le fichier OSH
 TMP_RELATIONS_DIR="${CONFIG.WORK_DIR}"
@@ -895,12 +921,27 @@ NODEJS
 
 # Nettoyer les fichiers temporaires
 rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
+fi
 `;
 
 script += `
 echo ""
 echo "== Global statistics update completed"
+
+# Mettre à jour le timestamp du parsing de notes à la fin de l'exécution
+# Cela indique que le script a été exécuté, même si le parsing a été sauté
+# Utiliser le même WORK_DIR que défini au début du script
+NOTES_PARSE_TIMESTAMP_FILE="$TMP_NOTES_DIR/.notes_parse_timestamp"
+mkdir -p "$TMP_NOTES_DIR"
+echo "$(date +%s)" > "$NOTES_PARSE_TIMESTAMP_FILE"
+echo "   => Notes parse timestamp updated at end of execution"
 `;
+
+// Créer le répertoire si nécessaire
+const outputDir = require('path').dirname(OUTPUT_SCRIPT);
+if (!fs.existsSync(outputDir)) {
+	fs.mkdirSync(outputDir, { recursive: true });
+}
 
 fs.writeFileSync(OUTPUT_SCRIPT, script);
 fs.chmodSync(OUTPUT_SCRIPT, '755');
