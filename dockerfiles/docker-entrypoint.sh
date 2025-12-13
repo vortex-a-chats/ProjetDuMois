@@ -341,6 +341,34 @@ fi
 
 echo "Executing ${command} command"
 
+# Capture start time
+START_TIME=$(date +%s)
+
+# Function to log execution time (called on exit)
+log_execution_time() {
+    if [ -n "$START_TIME" ]; then
+        END_TIME=$(date +%s)
+        EXECUTION_TIME=$((END_TIME - START_TIME))
+        HOURS=$((EXECUTION_TIME / 3600))
+        MINUTES=$(((EXECUTION_TIME % 3600) / 60))
+        SECONDS=$((EXECUTION_TIME % 60))
+        
+        if [ $HOURS -gt 0 ]; then
+            echo ""
+            echo "⏱️  Temps d'exécution: ${HOURS}h ${MINUTES}m ${SECONDS}s"
+        elif [ $MINUTES -gt 0 ]; then
+            echo ""
+            echo "⏱️  Temps d'exécution: ${MINUTES}m ${SECONDS}s"
+        else
+            echo ""
+            echo "⏱️  Temps d'exécution: ${SECONDS}s"
+        fi
+    fi
+}
+
+# Register trap to log execution time on exit
+trap log_execution_time EXIT
+
 case $command in
 "install")
     psql -d $DB_URL -f ./db/00_init.sql

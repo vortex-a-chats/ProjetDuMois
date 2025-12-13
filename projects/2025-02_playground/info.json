@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les parcs pour enfants sont essentiels pour le développement et le bien-être des enfants. Cartographions ensemble tous les parcs pour enfants dans OpenStreetMap ! #AireDeJeu #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Playground_icon.svg/800px-Playground_icon.svg.png",
+  "image": "/images/projects/playground.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:leisure%3Dplayground"
   },

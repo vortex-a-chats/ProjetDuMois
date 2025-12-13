@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Le Référentiel National des Bâtiments (RNB) permet d'améliorer la qualité des données sur les bâtiments. Ajoutons les références RNB aux bâtiments dans OpenStreetMap ! #RNB #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop",
+  "image": "/images/projects/rnb.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Référentiel_National_des_Bâtiments"
   },

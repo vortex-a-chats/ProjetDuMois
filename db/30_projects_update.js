@@ -9,6 +9,7 @@ const {Pool, Client} = require('pg')
 // Get project filter and options from command line arguments
 const args = process.argv.slice(2);
 const forceRecalculate = args.includes('--force-recalculate') || process.env.FORCE_RECALCULATE === 'true';
+const forceExtract = args.includes('--force-extract') || process.env.FORCE_EXTRACT === 'true';
 const targetProjectId = args.find(arg => !arg.startsWith('--') && projects[arg]) || null;
 
 let projectsToProcess = Object.values(projects);
@@ -30,6 +31,10 @@ if (forceRecalculate) {
 	console.log(`Mode: Force recalculation of all dates (--force-recalculate enabled)`);
 } else {
 	console.log(`Mode: Calculate only missing dates (default)`);
+}
+
+if (forceExtract) {
+	console.log(`Mode: Force OSH extraction (--force-extract enabled, will recreate OSC files)`);
 }
 
 /*
@@ -285,8 +290,11 @@ ${separator}
 
 projectsToProcess.forEach(project => {
 	let oshInput = OSH_UPDATED;
-	const oshProject = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}`);
-	const oshFiltered = OSH_FILTERED.replace("filtered", `${project.id.split("_").pop()}.filtered`);
+	// Extract project name: for "2025-02_data_center", we want "data_center" (everything after the first underscore)
+	const projectNameParts = project.id.split("_");
+	const projectName = projectNameParts.length > 1 ? projectNameParts.slice(1).join("_") : project.id;
+	const oshProject = OSH_FILTERED.replace("filtered", projectName);
+	const oshFiltered = OSH_FILTERED.replace("filtered", `${projectName}.filtered`);
 	const days = getProjectDays(project);
 
 	let tagFilterParts = project.database.osmium_tag_filter.split("&");
@@ -294,6 +302,7 @@ projectsToProcess.forEach(project => {
 	script += `
 echo "== Begin process for project ${project.id}"
 FORCE_RECALCULATE="${forceRecalculate ? 'true' : 'false'}"
+FORCE_EXTRACT="${forceExtract ? 'true' : 'false'}"
 prev_timestamp=$(${PSQL} -qtAc "SELECT to_char (lastupdate_date at time zone 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS\\"Z\\"') from pdm_projects where project='${project.id}'")
 if [ -n "\$prev_timestamp" ]; then
 	echo "Starting from project last update: $prev_timestamp"
@@ -314,20 +323,73 @@ if [[ -z \$cnt_timestamp || \$prj_timestamp>=\$cnt_timestamp ]]; then
 fi
 
 # Vérifier si la dernière mise à jour date de moins de 24 heures
+# Vérifier aussi si le fichier OSC existe et est récent (moins de 24h)
+# Sauf si --force-extract est activé
 SKIP_EXTRACTION=false
-if [[ -n "\$prev_timestamp" ]]; then
-	# Convertir prev_timestamp en timestamp Unix (format ISO 8601: YYYY-MM-DDTHH:MM:SSZ)
-	# Essayer différentes méthodes selon le système
-	prev_unix=$(date -u -d "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%d %H:%M:%S" "\$(echo \$prev_timestamp | tr 'T' ' ' | tr -d 'Z')" +%s 2>/dev/null || echo "0")
-	# Timestamp actuel
-	now_unix=$(date +%s)
-	# Différence en secondes (24 heures = 86400 secondes)
-	diff_seconds=$((now_unix - prev_unix))
-	if [ $diff_seconds -lt 86400 ] && [ $diff_seconds -ge 0 ]; then
-		SKIP_EXTRACTION=true
-		hours_ago=$((diff_seconds / 3600))
-		echo "   ⏭️  Dernière mise à jour il y a \${hours_ago}h (\$prev_timestamp), extraction OSH et import en base ignorés"
+TMP_OSC="${CONFIG.WORK_DIR}/tmp_${projectName}_changes.osc"
+OSH_EXTRACTION_RECENT=false
+
+# Si --force-extract est activé, supprimer le fichier OSC pour forcer la recréation
+if [ "$FORCE_EXTRACT" = "true" ]; then
+	if [ -f "\${TMP_OSC}" ]; then
+		rm -f "\${TMP_OSC}"
+		echo "   🔄 Mode --force-extract activé, fichier OSC supprimé pour forcer la recréation"
 	fi
+fi
+
+# Vérifier l'âge du fichier OSC s'il existe ET n'est pas vide (sauf si --force-extract est activé)
+# Le fichier doit exister, avoir une taille > 0, et être récent (< 24h)
+if [ "$FORCE_EXTRACT" != "true" ] && [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+	OSC_MTIME=$(stat -c %Y "\${TMP_OSC}" 2>/dev/null || stat -f %m "\${TMP_OSC}" 2>/dev/null || echo "0")
+	if [ "$OSC_MTIME" != "0" ]; then
+		now_unix=$(date +%s)
+		osc_age=$((now_unix - OSC_MTIME))
+		if [ $osc_age -lt 86400 ] && [ $osc_age -ge 0 ]; then
+			OSH_EXTRACTION_RECENT=true
+			hours_ago=$((osc_age / 3600))
+			echo "   ⏭️  Fichier OSC existe et date de \${hours_ago}h, extraction OSH ignorée"
+		fi
+	fi
+elif [ "$FORCE_EXTRACT" != "true" ] && [ -f "\${TMP_OSC}" ] && [ ! -s "\${TMP_OSC}" ]; then
+	# Le fichier OSC existe mais est vide, on doit forcer l'extraction
+	echo "   ⚠️  Fichier OSC existe mais est vide, extraction OSH nécessaire"
+	rm -f "\${TMP_OSC}"
+	OSH_EXTRACTION_RECENT=false
+fi
+
+# Vérifier aussi le timestamp de dernière mise à jour (sauf si --force-extract est activé)
+# MAIS seulement si le fichier OSC existe et n'est pas vide
+if [ "$FORCE_EXTRACT" != "true" ] && [ "\$OSH_EXTRACTION_RECENT" = "false" ] && [[ -n "\$prev_timestamp" ]]; then
+	# Vérifier d'abord si le fichier OSC existe et n'est pas vide
+	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+		# Convertir prev_timestamp en timestamp Unix (format ISO 8601: YYYY-MM-DDTHH:MM:SSZ)
+		# Essayer différentes méthodes selon le système
+		prev_unix=$(date -u -d "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%d %H:%M:%S" "\$(echo \$prev_timestamp | tr 'T' ' ' | tr -d 'Z')" +%s 2>/dev/null || echo "0")
+		# Timestamp actuel
+		now_unix=$(date +%s)
+		# Différence en secondes (24 heures = 86400 secondes)
+		diff_seconds=$((now_unix - prev_unix))
+		if [ $diff_seconds -lt 86400 ] && [ $diff_seconds -ge 0 ]; then
+			SKIP_EXTRACTION=true
+			hours_ago=$((diff_seconds / 3600))
+			echo "   ⏭️  Dernière mise à jour il y a \${hours_ago}h (\$prev_timestamp), extraction OSH et import en base ignorés"
+		fi
+	else
+		# Le fichier OSC n'existe pas ou est vide, on doit forcer l'extraction
+		echo "   ⚠️  Fichier OSC manquant ou vide, extraction OSH nécessaire"
+		SKIP_EXTRACTION=false
+	fi
+fi
+
+# Si le fichier OSC est récent, on skip aussi l'extraction (sauf si --force-extract est activé)
+if [ "$FORCE_EXTRACT" != "true" ] && [ "\$OSH_EXTRACTION_RECENT" = "true" ]; then
+	SKIP_EXTRACTION=true
+fi
+
+# Si --force-extract est activé, forcer l'extraction même si la dernière mise à jour date de moins de 24h
+if [ "$FORCE_EXTRACT" = "true" ]; then
+	SKIP_EXTRACTION=false
+	echo "   🔄 Mode --force-extract activé, extraction OSH forcée (ignorant les vérifications de cache)"
 fi
 
 # Définir HAS_CHANGESET_ID même si on skip l'extraction (utilisé plus tard)
@@ -342,31 +404,86 @@ ${PSQL} -c "CREATE TABLE pdm_changes_tmp (LIKE pdm_changes)"
 if [ "\$SKIP_EXTRACTION" = "false" ]; then
 echo "   => Extract changes from OSH file and import to database"
 rm -f "${CSV_CHANGES}"
-TMP_OSC="${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_changes.osc"
-rm -f "\${TMP_OSC}"
+# Utiliser OSH_EXTRACTION_RECENT qui a été vérifié plus haut (sauf si --force-extract)
+if [ "$FORCE_EXTRACT" = "true" ]; then
+	OSC_EXISTS_AND_RECENT="false"
+	echo "   🔄 Mode --force-extract activé, extraction OSH forcée"
+else
+	OSC_EXISTS_AND_RECENT="\$OSH_EXTRACTION_RECENT"
+fi
 
 # Convert OSH to OSC directly - use pipe for single filter, minimal intermediate files for multiple filters
+# Skip extraction si le fichier OSC existe déjà et est récent
 `;
 	if (tagFilterParts.length === 1) {
 		// Single filter - use pipe to avoid creating intermediate file
 		script += `
-# Single tag filter - use pipe to avoid creating intermediate file
+# Single tag filter - extract changes from OSH using derive-changes
+if [ "\$OSC_EXISTS_AND_RECENT" = "false" ]; then
 echo "   => Applying tag filter: ${tagFilterParts[0]}"
-echo "   => Converting OSH to OSC format (using pipe, no intermediate file)..."
-if osmium tags-filter "${OSH_UPDATED}" ${tagFilterParts[0]} -O -f osh.pbf 2>&1 | osmium export - --input-format=osh.pbf --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
-	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
-		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
-		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+echo "   => Extracting changes from OSH file..."
+TMP_FILTERED_OSH="\${TMP_OSC}.filtered.osh.pbf"
+TMP_OSM_OLD="\${TMP_OSC}.old.osm.pbf"
+TMP_OSM_NEW="\${TMP_OSC}.new.osm.pbf"
+CONVERSION_FAILED=false
+
+# Step 1: Filter OSH file
+if ! osmium tags-filter "${OSH_UPDATED}" ${tagFilterParts[0]} -O -f osh.pbf -o "\${TMP_FILTERED_OSH}" 2>&1; then
+	EXIT_CODE=$?
+	echo "   ❌ Failed to filter OSH file (exit code: \$EXIT_CODE)"
+	echo "   => Check osmium tags-filter error messages above for details"
+	CONVERSION_FAILED=true
+fi
+
+# Step 2: Extract state at start date (or very old date)
+if [ "\$CONVERSION_FAILED" = "false" ]; then
+	OLD_DATE="1970-01-01T00:00:00Z"
+	if ! osmium time-filter "\${TMP_FILTERED_OSH}" "\$OLD_DATE" -O -f osm.pbf -o "\${TMP_OSM_OLD}" 2>&1; then
+		EXIT_CODE=$?
+		echo "   ❌ Failed to extract old state from OSH (exit code: \$EXIT_CODE)"
+		CONVERSION_FAILED=true
+	fi
+fi
+
+# Step 3: Extract state at end date (current)
+if [ "\$CONVERSION_FAILED" = "false" ]; then
+	FUTURE_DATE="2099-12-31T23:59:59Z"
+	if ! osmium time-filter "\${TMP_FILTERED_OSH}" "\$FUTURE_DATE" -O -f osm.pbf -o "\${TMP_OSM_NEW}" 2>&1; then
+		EXIT_CODE=$?
+		echo "   ❌ Failed to extract new state from OSH (exit code: \$EXIT_CODE)"
+		CONVERSION_FAILED=true
+	fi
+fi
+
+# Step 4: Derive changes between old and new state
+if [ "\$CONVERSION_FAILED" = "false" ]; then
+	if osmium derive-changes "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}" -O -o "\${TMP_OSC}" 2>&1; then
+		if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+			OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+			echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+		else
+			echo "   ⚠️  OSC file is empty or missing after conversion"
+			echo "   => This may indicate no changes were found"
+			touch "${CSV_CHANGES}"
+		fi
+		rm -f "\${TMP_FILTERED_OSH}" "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 	else
-		echo "   ⚠️  OSC file is empty or missing after conversion"
-		echo "   => Check osmium error messages above for details"
+		EXIT_CODE=$?
+		echo "   ❌ Failed to derive changes from OSH (exit code: \$EXIT_CODE)"
+		echo "   => Check osmium derive-changes error messages above for details"
+		CONVERSION_FAILED=true
+		rm -f "\${TMP_FILTERED_OSH}" "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 		touch "${CSV_CHANGES}"
 	fi
+fi
+
+# If conversion failed, exit to prevent processing with zero objects
+if [ "\$CONVERSION_FAILED" = "true" ]; then
+	echo "   ❌ Conversion failed, aborting project update"
+	exit 1
+fi
 else
-	EXIT_CODE=$?
-	echo "   ❌ Failed to convert OSH to OSC format (exit code: \$EXIT_CODE)"
-	echo "   => Check osmium error messages above for details"
-	touch "${CSV_CHANGES}"
+	echo "   ⏭️  Extraction OSH ignorée, utilisation du fichier OSC existant"
 fi
 `;
 	} else if (tagFilterParts.length > 1) {
@@ -379,8 +496,8 @@ TMP_INPUT="${OSH_UPDATED}"
 		tagFilterParts.forEach((tagFilter, index) => {
 			const isLast = index === tagFilterParts.length - 1;
 			const tmpFile = isLast 
-				? `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered_final.osh.pbf"`
-				: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered_${index}.osh.pbf"`;
+				? `"${CONFIG.WORK_DIR}/tmp_${projectName}_filtered_final.osh.pbf"`
+				: `"${CONFIG.WORK_DIR}/tmp_${projectName}_filtered_${index}.osh.pbf"`;
 			
 			script += `
 # Apply filter ${index + 1}/${tagFilterParts.length}
@@ -406,25 +523,64 @@ fi
 		
 		script += `
 if [ "\${FILTER_FAILED:-false}" != "true" ]; then
-	# Convert filtered OSH to OSC
-	echo "   => Converting filtered OSH to OSC format..."
-	if osmium export "\${TMP_INPUT}" --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
-		if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
-			OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
-			echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+	# Convert filtered OSH to OSC using derive-changes
+	if [ "\$OSC_EXISTS_AND_RECENT" = "false" ]; then
+	echo "   => Extracting changes from filtered OSH file..."
+	TMP_OSM_OLD="\${TMP_OSC}.old.osm.pbf"
+	TMP_OSM_NEW="\${TMP_OSC}.new.osm.pbf"
+	CONVERSION_FAILED=false
+	
+	# Extract state at start date (or very old date)
+	OLD_DATE="1970-01-01T00:00:00Z"
+	if ! osmium time-filter "\${TMP_INPUT}" "\$OLD_DATE" -O -f osm.pbf -o "\${TMP_OSM_OLD}" 2>&1; then
+		EXIT_CODE=$?
+		echo "   ❌ Failed to extract old state from OSH (exit code: \$EXIT_CODE)"
+		CONVERSION_FAILED=true
+	fi
+	
+	# Extract state at end date (current)
+	if [ "\$CONVERSION_FAILED" = "false" ]; then
+		FUTURE_DATE="2099-12-31T23:59:59Z"
+		if ! osmium time-filter "\${TMP_INPUT}" "\$FUTURE_DATE" -O -f osm.pbf -o "\${TMP_OSM_NEW}" 2>&1; then
+			EXIT_CODE=$?
+			echo "   ❌ Failed to extract new state from OSH (exit code: \$EXIT_CODE)"
+			CONVERSION_FAILED=true
+		fi
+	fi
+	
+	# Derive changes between old and new state
+	if [ "\$CONVERSION_FAILED" = "false" ]; then
+		if osmium derive-changes "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}" -O -o "\${TMP_OSC}" 2>&1; then
+			if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+				OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+				echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+			else
+				echo "   ⚠️  OSC file is empty or missing after conversion"
+				echo "   => This may indicate no changes were found"
+				touch "${CSV_CHANGES}"
+			fi
+			rm -f "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 		else
-			echo "   ⚠️  OSC file is empty or missing after conversion"
-			echo "   => Check osmium export error messages above for details"
+			EXIT_CODE=$?
+			echo "   ❌ Failed to derive changes from OSH (exit code: \$EXIT_CODE)"
+			echo "   => Check osmium derive-changes error messages above for details"
+			CONVERSION_FAILED=true
+			rm -f "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 			touch "${CSV_CHANGES}"
 		fi
-	else
-		EXIT_CODE=$?
-		echo "   ❌ Failed to export OSH to OSC format (exit code: \$EXIT_CODE)"
-		echo "   => Check osmium export error messages above for details"
-		touch "${CSV_CHANGES}"
 	fi
+	
 	# Clean up intermediate filtered file immediately
 	rm -f "\${TMP_INPUT}"
+	
+	# If conversion failed, exit to prevent processing with zero objects
+	if [ "\$CONVERSION_FAILED" = "true" ]; then
+		echo "   ❌ Conversion failed, aborting project update"
+		exit 1
+	fi
+	else
+		echo "   ⏭️  Extraction OSH ignorée, utilisation du fichier OSC existant"
+	fi
 else
 	echo "   ⚠️  Tag filtering failed, skipping OSC conversion"
 fi
@@ -432,22 +588,60 @@ fi
 	} else {
 		// No filters - just export directly
 		script += `
-# No tag filters - convert OSH to OSC directly
-echo "   => Converting OSH to OSC format (no tag filters)..."
-if osmium export "${OSH_UPDATED}" --output-format=osc -O -o "\${TMP_OSC}" 2>&1; then
-	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
-		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
-		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+# No tag filters - extract changes from OSH using derive-changes
+if [ "\$OSC_EXISTS_AND_RECENT" = "false" ]; then
+echo "   => Extracting changes from OSH file (no tag filters)..."
+TMP_OSM_OLD="\${TMP_OSC}.old.osm.pbf"
+TMP_OSM_NEW="\${TMP_OSC}.new.osm.pbf"
+CONVERSION_FAILED=false
+
+# Extract state at start date (or very old date)
+OLD_DATE="1970-01-01T00:00:00Z"
+if ! osmium time-filter "${OSH_UPDATED}" "\$OLD_DATE" -O -f osm.pbf -o "\${TMP_OSM_OLD}" 2>&1; then
+	EXIT_CODE=$?
+	echo "   ❌ Failed to extract old state from OSH (exit code: \$EXIT_CODE)"
+	CONVERSION_FAILED=true
+fi
+
+# Extract state at end date (current)
+if [ "\$CONVERSION_FAILED" = "false" ]; then
+	FUTURE_DATE="2099-12-31T23:59:59Z"
+	if ! osmium time-filter "${OSH_UPDATED}" "\$FUTURE_DATE" -O -f osm.pbf -o "\${TMP_OSM_NEW}" 2>&1; then
+		EXIT_CODE=$?
+		echo "   ❌ Failed to extract new state from OSH (exit code: \$EXIT_CODE)"
+		CONVERSION_FAILED=true
+	fi
+fi
+
+# Derive changes between old and new state
+if [ "\$CONVERSION_FAILED" = "false" ]; then
+	if osmium derive-changes "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}" -O -o "\${TMP_OSC}" 2>&1; then
+		if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+			OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+			echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+		else
+			echo "   ⚠️  OSC file is empty or missing after conversion"
+			echo "   => This may indicate no changes were found"
+			touch "${CSV_CHANGES}"
+		fi
+		rm -f "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 	else
-		echo "   ⚠️  OSC file is empty or missing after conversion"
-		echo "   => Check osmium export error messages above for details"
+		EXIT_CODE=$?
+		echo "   ❌ Failed to derive changes from OSH (exit code: \$EXIT_CODE)"
+		echo "   => Check osmium derive-changes error messages above for details"
+		CONVERSION_FAILED=true
+		rm -f "\${TMP_OSM_OLD}" "\${TMP_OSM_NEW}"
 		touch "${CSV_CHANGES}"
 	fi
+fi
+
+# If conversion failed, exit to prevent processing with zero objects
+if [ "\$CONVERSION_FAILED" = "true" ]; then
+	echo "   ❌ Conversion failed, aborting project update"
+	exit 1
+fi
 else
-	EXIT_CODE=$?
-	echo "   ❌ Failed to export OSH to OSC format (exit code: \$EXIT_CODE)"
-	echo "   => Check osmium export error messages above for details"
-	touch "${CSV_CHANGES}"
+	echo "   ⏭️  Extraction OSH ignorée, utilisation du fichier OSC existant"
 fi
 `;
 	}
@@ -523,7 +717,25 @@ for row in reader:
 	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{tags}')
 " > "${CSV_CHANGES}"
 	fi
-	rm -f "\${TMP_OSC}"
+	# Ne pas supprimer le fichier OSC s'il est récent (moins de 24h) pour pouvoir le réutiliser
+	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+		OSC_MTIME=$(stat -c %Y "\${TMP_OSC}" 2>/dev/null || stat -f %m "\${TMP_OSC}" 2>/dev/null || echo "0")
+		if [ "$OSC_MTIME" != "0" ]; then
+			now_unix=$(date +%s)
+			osc_age=$((now_unix - OSC_MTIME))
+			if [ $osc_age -ge 86400 ]; then
+				# Fichier OSC plus vieux que 24h, on peut le supprimer
+				rm -f "\${TMP_OSC}"
+			else
+				# Fichier OSC récent, on le garde pour la prochaine fois
+				echo "   ℹ️  Fichier OSC conservé pour réutilisation (âge: $((osc_age / 3600))h)"
+			fi
+		else
+			rm -f "\${TMP_OSC}"
+		fi
+	else
+		rm -f "\${TMP_OSC}"
+	fi
 else
 	echo "   ⚠️  OSC file is empty or missing, CSV will be empty"
 	touch "${CSV_CHANGES}"
@@ -546,11 +758,11 @@ else
 	# Elle sera vide, ce qui est normal si on skip l'extraction
 fi
 
-${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${project.id.split("_").pop()}" -f "${__dirname}/33_changes_populate.sql"
+${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${projectName}" -f "${__dirname}/33_changes_populate.sql"
 if ${HAS_BOUNDARY}; then
 	echo "   => Associate features with boundaries"
 	if ${PSQL} -c "SELECT * FROM pdm_boundary_subdivide LIMIT 1" > /dev/null 2>&1; then
-		${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${project.id.split("_").pop()}" -f "${__dirname}/33_changes_boundary.sql"
+		${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${projectName}" -f "${__dirname}/33_changes_boundary.sql"
 	else
 		echo "   WARNING: pdm_boundary_subdivide does not exist. Boundaries statistics will not be calculated."
 		echo "   Run 'docker-compose exec pdm ./docker-entrypoint.sh update_features init' to initialize boundaries."
@@ -567,8 +779,8 @@ rm -f "${CSV_CHANGES}"
 ${separator}
 
 echo "== Statistics for project ${project.id}"`;
-	let osmStats = OSH_USEFULL.replace("usefull.osh.pbf", `${project.id.split("_").pop()}.stats.osm.pbf`);
-	let osmStatsFiltered = OSH_USEFULL.replace("usefull.osh.pbf", `${project.id.split("_").pop()}.filtered.stats.osm.pbf`);
+	let osmStats = OSH_USEFULL.replace("usefull.osh.pbf", `${projectName}.stats.osm.pbf`);
+	let osmStatsFiltered = OSH_USEFULL.replace("usefull.osh.pbf", `${projectName}.filtered.stats.osm.pbf`);
 
 	// Dénombrements
 	if (project.statistics.count){

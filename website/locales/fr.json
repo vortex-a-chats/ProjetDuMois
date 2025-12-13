@@ -151,5 +151,12 @@
 	"À propos": "À propos",
 	"En ce moment : %s projets prioritaires": "En ce moment : %s projets prioritaires",
 	"Tous nos projets": "Tous nos projets",
-	"Retrouvez l'ensemble des projets du mois, leurs outils, statistiques et données.": "Retrouvez l'ensemble des projets du mois, leurs outils, statistiques et données."
+	"Retrouvez l'ensemble des projets du mois, leurs outils, statistiques et données.": "Retrouvez l'ensemble des projets du mois, leurs outils, statistiques et données.",
+	"Périmètre considéré": "Périmètre considéré",
+	"Alpes françaises": "Alpes françaises",
+	"Bbox": "Bbox",
+	"Nombre total de relations": "Nombre total de relations",
+	"itinéraires": "itinéraires",
+	"Documentation": "Documentation",
+	"Wiki OSM - Relations route": "Wiki OSM - Relations route"
 }

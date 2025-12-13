@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les bancs publics améliorent le confort des espaces publics. Cartographions ensemble tous les bancs dans OpenStreetMap ! #Bancs #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=800&auto=format&fit=crop",
+  "image": "/images/projects/benches.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Dbench"
   },

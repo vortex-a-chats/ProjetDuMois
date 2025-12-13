@@ -1359,6 +1359,138 @@ app.get("/projects/:id/stats", (req, res) => {
             lineTension: 0,
           },
         ];
+
+        // Calculate monthly variation chart
+        // Use the main dataset (absolute values) to calculate monthly variations correctly
+        // The variation for each month = end of month value - end of previous month value
+        if (mainDataset && Array.isArray(mainDataset.data) && mainDataset.data.length > 0) {
+          // Find the most recent year in the data
+          let targetYear = new Date().getFullYear();
+          const yearsInData = new Set();
+          mainDataset.data.forEach(point => {
+            if (point.t) {
+              const date = new Date(point.t);
+              if (!isNaN(date.getTime())) {
+                yearsInData.add(date.getFullYear());
+              }
+            }
+          });
+          if (yearsInData.size > 0) {
+            // Use the most recent year in the data
+            targetYear = Math.max(...Array.from(yearsInData));
+          }
+          
+          const monthlyEndValues = {};
+
+          // Initialize all 12 months with null
+          for (let month = 1; month <= 12; month++) {
+            const monthKey = targetYear + '-' + String(month).padStart(2, '0');
+            monthlyEndValues[monthKey] = null;
+          }
+
+          // Process all data points to find the end value (last measurement) for each month
+          mainDataset.data.forEach(point => {
+            if (point.t && point.y !== undefined && point.y !== null) {
+              const date = new Date(point.t);
+              const year = date.getFullYear();
+              const month = date.getMonth() + 1; // 1-12
+
+              // Only include target year data (most recent year in data)
+              if (year === targetYear) {
+                const monthKey = year + '-' + String(month).padStart(2, '0');
+                if (monthlyEndValues.hasOwnProperty(monthKey)) {
+                  const value = Number(point.y) || 0;
+                  const pointDate = new Date(point.t);
+
+                  // Keep the latest value for each month (end of month value)
+                  if (monthlyEndValues[monthKey] === null) {
+                    monthlyEndValues[monthKey] = { value: value, date: pointDate };
+                  } else if (pointDate > monthlyEndValues[monthKey].date) {
+                    monthlyEndValues[monthKey] = { value: value, date: pointDate };
+                  }
+                }
+              }
+            }
+          });
+
+          // For months without data, try to use the previous month's end value
+          // This handles cases where there's no measurement in a given month
+          for (let month = 1; month <= 12; month++) {
+            const monthKey = targetYear + '-' + String(month).padStart(2, '0');
+            if (monthlyEndValues[monthKey] === null && month > 1) {
+              const prevMonth = month - 1;
+              const prevMonthKey = targetYear + '-' + String(prevMonth).padStart(2, '0');
+              if (monthlyEndValues[prevMonthKey] !== null) {
+                // Use previous month's end value as this month's value if no data
+                monthlyEndValues[monthKey] = {
+                  value: monthlyEndValues[prevMonthKey].value,
+                  date: new Date(targetYear, month - 1, 1)
+                };
+              }
+            }
+          }
+
+          // Convert to array format for chart, calculating variation for each month
+          // Variation = end of current month - end of previous month
+          const monthlyChartData = [];
+
+          for (let month = 1; month <= 12; month++) {
+            const monthKey = targetYear + '-' + String(month).padStart(2, '0');
+            const monthEndValue = monthlyEndValues[monthKey];
+
+            let monthValue = 0;
+            if (monthEndValue !== null) {
+              if (month === 1) {
+                // For the first month, we need to find the value at the end of the previous year
+                // Look for the last measurement of the previous year
+                let prevYearEndValue = null;
+                for (let i = mainDataset.data.length - 1; i >= 0; i--) {
+                  const point = mainDataset.data[i];
+                  if (point.t && point.y !== undefined && point.y !== null) {
+                    const date = new Date(point.t);
+                    if (date.getFullYear() === targetYear - 1) {
+                      prevYearEndValue = Number(point.y) || 0;
+                      break;
+                    }
+                  }
+                }
+                if (prevYearEndValue !== null) {
+                  monthValue = monthEndValue.value - prevYearEndValue;
+                } else {
+                  // If no previous year data, variation is 0 or the value itself
+                  monthValue = monthEndValue.value;
+                }
+              } else {
+                // For other months, variation = current month end - previous month end
+                const prevMonth = month - 1;
+                const prevMonthKey = targetYear + '-' + String(prevMonth).padStart(2, '0');
+                const prevMonthEndValue = monthlyEndValues[prevMonthKey];
+                if (prevMonthEndValue !== null) {
+                  monthValue = monthEndValue.value - prevMonthEndValue.value;
+                }
+              }
+            }
+
+            monthlyChartData.push({
+              t: new Date(targetYear, month - 1, 1).toISOString(),
+              y: monthValue
+            });
+          }
+
+          // Add monthly variation chart to response
+          toSend.monthlyVariationChart = [
+            {
+              label: "Variation mensuelle",
+              data: monthlyChartData,
+              fill: true,
+              borderColor: "#7B1FA2",
+              backgroundColor: "rgba(123, 31, 162, 0.2)",
+              lineTension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }
+          ];
+        }
       }
     }
 
@@ -2079,20 +2211,41 @@ app.get("/notes-france", (req, res) => {
   );
 
   // Récupérer les 10 dernières notes via l'API OSM
-  const notesQuery = fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,41.0,8.0,51.0&limit=10`)
-    .then(res => res.json())
+  // La bbox doit être limitée à 25 degrés (max 5x5)
+  // On utilise une bbox centrée sur la France (environ 4x4 degrés)
+  const notesQuery = fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,46.0,6.0,50.0&limit=10`)
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      return res.json();
+    })
     .then(jsonData => {
-      const notes = (jsonData.features || []).map(feature => {
+      // L'API OSM peut retourner soit un objet GeoJSON avec features, soit directement un tableau
+      let features = [];
+      if (jsonData.features && Array.isArray(jsonData.features)) {
+        features = jsonData.features;
+      } else if (Array.isArray(jsonData)) {
+        features = jsonData;
+      } else if (jsonData.type === 'FeatureCollection' && jsonData.features) {
+        features = jsonData.features;
+      }
+      
+      const notes = features.map(feature => {
+        // Le format OSM est un FeatureCollection avec des Feature
         const props = feature.properties || {};
+        const geometry = feature.geometry || {};
         const comments = props.comments || [];
         const firstComment = comments[0] || {};
+        const coords = geometry.coordinates || [];
+        
         return {
           id: props.id,
-          lat: feature.geometry.coordinates[1],
-          lon: feature.geometry.coordinates[0],
-          status: props.status,
+          lat: coords[1] || 0,
+          lon: coords[0] || 0,
+          status: props.status || 'open',
           date_created: props.date_created,
-          date_closed: props.date_closed,
+          date_closed: props.closed_at,
           comment: firstComment.text || '',
           comment_date: firstComment.date || props.date_created,
           url: `https://www.openstreetmap.org/note/${props.id}`
@@ -2287,9 +2440,9 @@ app.get("/osm-plein-air", (req, res) => {
     return res.redirect("/");
   }
 
-  // Get all hiking routes (type=route and route=hiking)
-  pool
-    .query(
+  // Get all hiking routes (type=route and route=hiking) and total count
+  Promise.all([
+    pool.query(
       `
       SELECT 
         osm_id,
@@ -2305,11 +2458,18 @@ app.get("/osm-plein-air", (req, res) => {
       ORDER BY name, osm_id
       LIMIT 1000
     `,
-    )
-    .then((result) => {
+    ),
+    pool.query(
+      `
+      SELECT COUNT(*) as total
+      FROM pdm_relation_hiking
+    `,
+    ),
+  ])
+    .then(([routesResult, countResult]) => {
       res.render("pages/osm_plein_air", {
         CONFIG,
-        routes: result.rows.map((r) => ({
+        routes: routesResult.rows.map((r) => ({
           id: parseInt(r.osm_id),
           name: r.name,
           ref: r.ref,
@@ -2320,6 +2480,13 @@ app.get("/osm-plein-air", (req, res) => {
           descent: r.descent,
           duration: r.duration,
         })),
+        totalCount: parseInt(countResult.rows[0].total) || 0,
+        bbox: {
+          west: 5.0,
+          south: 44.0,
+          east: 7.5,
+          north: 46.5,
+        },
       });
     })
     .catch((err) => {
@@ -2328,6 +2495,13 @@ app.get("/osm-plein-air", (req, res) => {
       res.render("pages/osm_plein_air", {
         CONFIG,
         routes: [],
+        totalCount: 0,
+        bbox: {
+          west: 5.0,
+          south: 44.0,
+          east: 7.5,
+          north: 46.5,
+        },
       });
     });
 });

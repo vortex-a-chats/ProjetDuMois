@@ -203,12 +203,14 @@ DECLARE
     v_last_part TEXT;
 BEGIN
     -- Get the project table name (e.g., pdm_project_streetlamps)
-    -- Extract the last part after the last underscore, or use the whole project id if no underscore
+    -- Extract everything after the first underscore (e.g., "2025-02_data_center" -> "data_center")
+    -- or use the whole project id if no underscore
     v_parts := string_to_array(p_project, '_');
-    IF array_length(v_parts, 1) IS NULL OR array_length(v_parts, 1) = 0 THEN
+    IF array_length(v_parts, 1) IS NULL OR array_length(v_parts, 1) <= 1 THEN
         v_last_part := p_project;
     ELSE
-        v_last_part := v_parts[array_length(v_parts, 1)];
+        -- Join all parts after the first one (skip the date part)
+        v_last_part := array_to_string(v_parts[2:array_length(v_parts, 1)], '_');
     END IF;
     v_project_table := 'pdm_project_' || v_last_part;
     

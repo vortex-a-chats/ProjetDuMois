@@ -735,67 +735,165 @@ script.
 				});
 				
 				// Calculate monthly variation chart
-				if(variationChartData && variationChartData[0].data && variationChartData[0].data.length > 0) {
-					// Aggregate variations by month
-					const monthlyData = {};
-					const currentYear = new Date().getFullYear();
+				// Use monthlyVariationChart from server response if available, otherwise calculate from main dataset
+				let monthlyChartData = null;
+				
+				if(res.monthlyVariationChart && Array.isArray(res.monthlyVariationChart) && res.monthlyVariationChart.length > 0) {
+					// Use monthlyVariationChart from server response
+					monthlyChartData = res.monthlyVariationChart[0].data;
+				} else {
+					// Fallback: Calculate monthly variation chart from the main dataset (absolute values)
+					// The variation for each month = end of month value - end of previous month value
+					const mainDataset = res.chart.find(
+						(ds) =>
+							ds &&
+							typeof ds.label === "string" &&
+							(ds.label.toLowerCase().includes("nombre") || 
+							 ds.label.toLowerCase().includes("dans osm") || 
+							 ds.label.toLowerCase().includes("objets")) &&
+							!ds.label.includes('#{__("Début du projet")}')
+					);
 					
-					// Initialize all 12 months with 0
-					for(let month = 0; month < 12; month++) {
-						const monthKey = currentYear + '-' + String(month + 1).padStart(2, '0');
-						monthlyData[monthKey] = 0;
-					}
-					
-					// Aggregate variations by month
-					variationChartData[0].data.forEach(point => {
-						if(point.t && point.y !== undefined && point.y !== null) {
-							const date = new Date(point.t);
-							const year = date.getFullYear();
-							const month = date.getMonth() + 1; // 1-12
-							
-							// Only include current year data
-							if(year === currentYear) {
-								const monthKey = year + '-' + String(month).padStart(2, '0');
-								if(monthlyData[monthKey] !== undefined) {
-									monthlyData[monthKey] += Number(point.y) || 0;
+					if(mainDataset && Array.isArray(mainDataset.data) && mainDataset.data.length > 0) {
+						// Find the most recent year in the data
+						let currentYear = new Date().getFullYear();
+						const yearsInData = new Set();
+						mainDataset.data.forEach(point => {
+							if(point.t) {
+								const date = new Date(point.t);
+								if(!isNaN(date.getTime())) {
+									yearsInData.add(date.getFullYear());
+								}
+							}
+						});
+						if(yearsInData.size > 0) {
+							currentYear = Math.max(...Array.from(yearsInData));
+						}
+						
+						const monthlyEndValues = {};
+						
+						// Initialize all 12 months with null
+						for(let month = 1; month <= 12; month++) {
+							const monthKey = currentYear + '-' + String(month).padStart(2, '0');
+							monthlyEndValues[monthKey] = null;
+						}
+						
+						// Process all data points to find the end value (last measurement) for each month
+						mainDataset.data.forEach(point => {
+							if(point.t && point.y !== undefined && point.y !== null) {
+								const date = new Date(point.t);
+								const year = date.getFullYear();
+								const month = date.getMonth() + 1; // 1-12
+								
+								// Only include current year data
+								if(year === currentYear) {
+									const monthKey = year + '-' + String(month).padStart(2, '0');
+									if(monthlyEndValues.hasOwnProperty(monthKey)) {
+										const value = Number(point.y) || 0;
+										const pointDate = new Date(point.t);
+										
+										// Keep the latest value for each month (end of month value)
+										if(monthlyEndValues[monthKey] === null) {
+											monthlyEndValues[monthKey] = { value: value, date: pointDate };
+										} else if(pointDate > monthlyEndValues[monthKey].date) {
+											monthlyEndValues[monthKey] = { value: value, date: pointDate };
+										}
+									}
+								}
+							}
+						});
+						
+						// For months without data, try to use the previous month's end value
+						for(let month = 1; month <= 12; month++) {
+							const monthKey = currentYear + '-' + String(month).padStart(2, '0');
+							if(monthlyEndValues[monthKey] === null && month > 1) {
+								const prevMonth = month - 1;
+								const prevMonthKey = currentYear + '-' + String(prevMonth).padStart(2, '0');
+								if(monthlyEndValues[prevMonthKey] !== null) {
+									monthlyEndValues[monthKey] = {
+										value: monthlyEndValues[prevMonthKey].value,
+										date: new Date(currentYear, month - 1, 1)
+									};
 								}
 							}
 						}
-					});
-					
-					// Convert to array format for chart
-					const monthlyChartData = [];
-					const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-					
-					for(let month = 1; month <= 12; month++) {
-						const monthKey = currentYear + '-' + String(month).padStart(2, '0');
-						const monthValue = monthlyData[monthKey] || 0;
-						monthlyChartData.push({
-							t: new Date(currentYear, month - 1, 1).toISOString(),
-							y: monthValue
-						});
+						
+						// Convert to array format for chart, calculating variation for each month
+						// Variation = end of current month - end of previous month
+						const calculatedMonthlyData = [];
+						
+						for(let month = 1; month <= 12; month++) {
+							const monthKey = currentYear + '-' + String(month).padStart(2, '0');
+							const monthEndValue = monthlyEndValues[monthKey];
+							
+							let monthValue = 0;
+							if(monthEndValue !== null) {
+								if(month === 1) {
+									// For the first month, find the value at the end of the previous year
+									let prevYearEndValue = null;
+									for(let i = mainDataset.data.length - 1; i >= 0; i--) {
+										const point = mainDataset.data[i];
+										if(point.t && point.y !== undefined && point.y !== null) {
+											const date = new Date(point.t);
+											if(date.getFullYear() === currentYear - 1) {
+												prevYearEndValue = Number(point.y) || 0;
+												break;
+											}
+										}
+									}
+									if(prevYearEndValue !== null) {
+										monthValue = monthEndValue.value - prevYearEndValue;
+									} else {
+										monthValue = monthEndValue.value;
+									}
+								} else {
+									// For other months, variation = current month end - previous month end
+									const prevMonth = month - 1;
+									const prevMonthKey = currentYear + '-' + String(prevMonth).padStart(2, '0');
+									const prevMonthEndValue = monthlyEndValues[prevMonthKey];
+									if(prevMonthEndValue !== null) {
+										monthValue = monthEndValue.value - prevMonthEndValue.value;
+									}
+								}
+							}
+							
+							calculatedMonthlyData.push({
+								t: new Date(currentYear, month - 1, 1).toISOString(),
+								y: monthValue
+							});
+						}
+						
+						monthlyChartData = calculatedMonthlyData;
 					}
-					
-					// Display monthly variation chart
-					if(monthlyChartData.length > 0) {
+				}
+				
+				// Display monthly variation chart
+				if((res.monthlyVariationChart && Array.isArray(res.monthlyVariationChart) && res.monthlyVariationChart.length > 0 && res.monthlyVariationChart[0].data && res.monthlyVariationChart[0].data.length > 0) || 
+				   (monthlyChartData && monthlyChartData.length > 0)) {
 						document.getElementById("stats-variation-monthly-chart-container").classList.remove("d-none");
 						const monthlySpinner = document.querySelector("#stats-variation-monthly-chart-container .spinner-charts");
 						if(monthlySpinner) monthlySpinner.classList.add("d-none");
 						
 						const ctxMonthly = document.getElementById("stats-variation-monthly-chart").getContext("2d");
+						
+						// Use monthlyVariationChart from server if available, otherwise use calculated data
+						const monthlyDataset = res.monthlyVariationChart && Array.isArray(res.monthlyVariationChart) && res.monthlyVariationChart.length > 0
+							? res.monthlyVariationChart[0]
+							: {
+								label: "Variation mensuelle",
+								data: monthlyChartData,
+								fill: true,
+								borderColor: "#7B1FA2",
+								backgroundColor: "rgba(123, 31, 162, 0.2)",
+								lineTension: 0.3,
+								pointRadius: 4,
+								pointHoverRadius: 6
+							};
+						
 						const myChartMonthly = new Chart(ctxMonthly, {
 							type: "line",
 							data: {
-								datasets: [{
-									label: "Variation mensuelle",
-									data: monthlyChartData,
-									fill: true,
-									borderColor: "#7B1FA2",
-									backgroundColor: "rgba(123, 31, 162, 0.2)",
-									lineTension: 0.3,
-									pointRadius: 4,
-									pointHoverRadius: 6
-								}]
+								datasets: [monthlyDataset]
 							},
 							options: {
 								responsive: true,
@@ -834,9 +932,6 @@ script.
 					} else {
 						document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");
 					}
-				} else {
-					document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");
-				}
 			} else {
 				document.getElementById("stats-variation-chart-container").classList.add("d-none");
 				document.getElementById("stats-variation-monthly-chart-container").classList.add("d-none");

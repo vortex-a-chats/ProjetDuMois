@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les microbibliothèques permettent l'échange gratuit de livres. Cartographions ensemble toutes les microbibliothèques dans OpenStreetMap ! #Microbibliothèque #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Open_book_icon.svg/800px-Open_book_icon.svg.png",
+  "image": "/images/projects/public_bookcase.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Dpublic_bookcase"
   },

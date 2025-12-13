@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les points d'eau potable sont essentiels pour les usagers. Cartographions ensemble tous les points d'eau potable dans OpenStreetMap ! #EauPotable #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=800&auto=format&fit=crop",
+  "image": "/images/projects/drinking_water_2024.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Ddrinking_water"
   },

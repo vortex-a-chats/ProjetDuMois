@@ -77,6 +77,9 @@ if(IMPOSM_ENABLED) {
 
 projectsToProcess.forEach(e => {
 	const [ id, project ] = e;
+	// Extract project name: for "2025-02_data_center", we want "data_center" (everything after the first underscore)
+	const projectNameParts = id.split("_");
+	const projectName = projectNameParts.length > 1 ? projectNameParts.slice(1).join("_") : id;
 
 	if (IMPOSM_ENABLED) {
 		const tableData = {
@@ -90,32 +93,32 @@ projectsToProcess.forEach(e => {
 		};
 
 		project.database.imposm.types.forEach(type => {
-			yamlData.tables[`project_${id.split("_").pop()}_${type}`] = Object.assign({ type }, tableData);
+			yamlData.tables[`project_${projectName}_${type}`] = Object.assign({ type }, tableData);
 		});
 
-		preSQL.push(`DROP VIEW IF EXISTS pdm_project_${id.split("_").pop()} CASCADE`);
+		preSQL.push(`DROP VIEW IF EXISTS pdm_project_${projectName} CASCADE`);
 		postSQL.push(
-			`CREATE OR REPLACE VIEW pdm_project_${id.split("_").pop()} AS `
+			`CREATE OR REPLACE VIEW pdm_project_${projectName} AS `
 			+ project.database.imposm.types.map(type => {
 				const osmid = type === "point" ? "CONCAT('node/', osm_id) AS osm_id" : "CASE WHEN osm_id < 0 THEN CONCAT('relation/', -osm_id) ELSE CONCAT('way/', osm_id) END AS osm_id";
 				const geom = type === "point" ? "geom::GEOMETRY(Point, 3857)" : "ST_PointOnSurface(geom)::GEOMETRY(Point, 3857) AS geom";
-				return `SELECT ${osmid}, name, hstore_to_json(tags) AS tags, tags ?| ARRAY['note','fixme'] AS needs_check, ${geom} FROM pdm_project_${id.split("_").pop()}_${type}`
+				return `SELECT ${osmid}, name, hstore_to_json(tags) AS tags, tags ?| ARRAY['note','fixme'] AS needs_check, ${geom} FROM pdm_project_${projectName}_${type}`
 			}).join(" UNION ALL ")
 		);
 
 		if(project.database.compare) {
 			// Table definition
 			project.database.compare.types.forEach(type => {
-				yamlData.tables[`project_${id.split("_").pop()}_compare_${type}`] = Object.assign({ type }, tableData, { mapping: project.database.compare.mapping });
+				yamlData.tables[`project_${projectName}_compare_${type}`] = Object.assign({ type }, tableData, { mapping: project.database.compare.mapping });
 			});
 
-			preSQL.push(`DROP VIEW IF EXISTS pdm_project_${id.split("_").pop()}_compare CASCADE`);
+			preSQL.push(`DROP VIEW IF EXISTS pdm_project_${projectName}_compare CASCADE`);
 			postSQL.push(
-				`CREATE OR REPLACE VIEW pdm_project_${id.split("_").pop()}_compare AS `
+				`CREATE OR REPLACE VIEW pdm_project_${projectName}_compare AS `
 				+ project.database.compare.types.map(type => {
 					const osmid = type === "point" ? "CONCAT('node/', osm_id) AS osm_id" : "CASE WHEN osm_id < 0 THEN CONCAT('relation/', -osm_id) ELSE CONCAT('way/', osm_id) END AS osm_id";
 					const geom = type === "point" ? "geom::GEOMETRY(Point, 3857)" : "ST_Centroid(geom)::GEOMETRY(Point, 3857) AS geom";
-					return `SELECT ${osmid}, name, hstore_to_json(tags) AS tags, ${geom} FROM pdm_project_${id.split("_").pop()}_compare_${type}`
+					return `SELECT ${osmid}, name, hstore_to_json(tags) AS tags, ${geom} FROM pdm_project_${projectName}_compare_${type}`
 				}).join(" UNION ALL ")
 			);
 		}
@@ -123,16 +126,16 @@ projectsToProcess.forEach(e => {
 
 	// Comparison tables
 	if(project.database.compare) {
-		preSQL.push(`DROP MATERIALIZED VIEW IF EXISTS pdm_project_${id.split("_").pop()}_compare_tiles`);
+		preSQL.push(`DROP MATERIALIZED VIEW IF EXISTS pdm_project_${projectName}_compare_tiles`);
 		postSQL.push(
-			`CREATE MATERIALIZED VIEW IF NOT EXISTS pdm_project_${id.split("_").pop()}_compare_tiles AS SELECT * FROM pdm_project_${id.split("_").pop()}_compare WHERE osm_id NOT IN (SELECT DISTINCT c.osm_id FROM pdm_project_${id.split("_").pop()}_compare c, pdm_project_${id.split("_").pop()} b WHERE ST_DWithin(c.geom, b.geom, ${project.database.compare.radius}))`
+			`CREATE MATERIALIZED VIEW IF NOT EXISTS pdm_project_${projectName}_compare_tiles AS SELECT * FROM pdm_project_${projectName}_compare WHERE osm_id NOT IN (SELECT DISTINCT c.osm_id FROM pdm_project_${projectName}_compare c, pdm_project_${projectName} b WHERE ST_DWithin(c.geom, b.geom, ${project.database.compare.radius}))`
 		);
-		postSQL.push(`CREATE INDEX ON pdm_project_${id.split("_").pop()}_compare_tiles USING GIST(geom)`);
-		postUpdateSQL.push(`REFRESH MATERIALIZED VIEW pdm_project_${id.split("_").pop()}_compare_tiles`);
+		postSQL.push(`CREATE INDEX ON pdm_project_${projectName}_compare_tiles USING GIST(geom)`);
+		postUpdateSQL.push(`REFRESH MATERIALIZED VIEW pdm_project_${projectName}_compare_tiles`);
 
-		preSQL.push(`DROP VIEW IF EXISTS pdm_project_${id.split("_").pop()}_compare_tiles_filtered CASCADE`);
+		preSQL.push(`DROP VIEW IF EXISTS pdm_project_${projectName}_compare_tiles_filtered CASCADE`);
 		postSQL.push(
-			`CREATE VIEW pdm_project_${id.split("_").pop()}_compare_tiles_filtered AS SELECT a.* FROM pdm_project_${id.split("_").pop()}_compare_tiles a LEFT JOIN pdm_compare_exclusions b ON b.project = '${id}' AND a.osm_id = b.osm_id WHERE b.osm_id IS NULL`
+			`CREATE VIEW pdm_project_${projectName}_compare_tiles_filtered AS SELECT a.* FROM pdm_project_${projectName}_compare_tiles a LEFT JOIN pdm_compare_exclusions b ON b.project = '${id}' AND a.osm_id = b.osm_id WHERE b.osm_id IS NULL`
 		);
 	}
 });
@@ -310,9 +313,10 @@ else
 	# Check if tables for the specific projects exist
 	# Build a list of expected table names from the YAML mapping
 	EXPECTED_TABLES="${projectsToProcess.map(([id, project]) => {
-		const projectSuffix = id.split("_").pop();
+		const projectNameParts = id.split("_");
+		const projectName = projectNameParts.length > 1 ? projectNameParts.slice(1).join("_") : id;
 		return project.database.imposm.types.map(type => {
-			return `pdm_project_${projectSuffix}_${type}`;
+			return `pdm_project_${projectName}_${type}`;
 		}).join(" ");
 	}).join(" ")}"
 	

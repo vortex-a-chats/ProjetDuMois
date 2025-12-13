@@ -645,7 +645,6 @@ else
 # Extraire les relations de type=route et route=hiking depuis le fichier OSH
 TMP_RELATIONS_DIR="${CONFIG.WORK_DIR}"
 mkdir -p "$TMP_RELATIONS_DIR"
-TMP_RELATIONS="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}.json"
 
 echo "   => Extracting relations from OSH file (this may take a while)..."
 TMP_FILTERED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_filtered.osm.pbf"
@@ -655,14 +654,47 @@ TMP_SORTED="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_sorted.osm.pbf"
 # Approximation: 5.0, 44.0, 7.5, 46.5
 ALPS_BBOX="5.0,44.0,7.5,46.5"
 
+# Vérifier si le fichier filtré existe déjà et a moins de 24h
+# Et vérifier si le fichier OSH source est plus récent que le fichier filtré
+FILTERED_EXISTS=false
+FILTERED_AGE_HOURS=999
+SHOULD_FILTER=true
+
+if [ -f "$TMP_FILTERED" ] && [ -f "$OSH_FILE" ]; then
+	FILTERED_EXISTS=true
+	# Calculer l'âge du fichier filtré en heures
+	FILTERED_MTIME=$(stat -c %Y "$TMP_FILTERED" 2>/dev/null || stat -f %m "$TMP_FILTERED" 2>/dev/null || echo "0")
+	OSH_MTIME=$(stat -c %Y "$OSH_FILE" 2>/dev/null || stat -f %m "$OSH_FILE" 2>/dev/null || echo "0")
+	CURRENT_TIME=$(date +%s)
+	FILTERED_AGE_SECONDS=$((CURRENT_TIME - FILTERED_MTIME))
+	FILTERED_AGE_HOURS=$((FILTERED_AGE_SECONDS / 3600))
+	
+	# Vérifier si le fichier OSH est plus récent que le fichier filtré
+	if [ "$OSH_MTIME" -gt "$FILTERED_MTIME" ]; then
+		echo "   => OSH file is newer than filtered file, will recreate"
+		SHOULD_FILTER=true
+	elif [ "$FILTERED_AGE_HOURS" -lt 24 ]; then
+		echo "   => Using existing filtered file (age: $FILTERED_AGE_HOURS hours, less than 24h)"
+		SHOULD_FILTER=false
+	else
+		echo "   => Filtered file is older than 24h (age: $FILTERED_AGE_HOURS hours), will recreate"
+		SHOULD_FILTER=true
+	fi
+fi
+
 # Extraire les relations avec type=route ET route=hiking
 # La syntaxe osmium tags-filter : r/ pour relations, puis les tags séparés
 # Pour avoir type=route ET route=hiking, on utilise deux filtres séparés
-echo "   => Filtering hiking routes by tags..."
-if ! osmium tags-filter "$OSH_FILE" r/type=route r/route=hiking -o "$TMP_FILTERED" --overwrite 2>&1; then
-	echo "   ⚠️  Error extracting relations from OSH file"
-	rm -f "$TMP_FILTERED" "$TMP_SORTED"
-	exit 1
+# Ne recréer le fichier que s'il n'existe pas, s'il a plus de 24h, ou si le fichier OSH est plus récent
+if [ "$SHOULD_FILTER" = "true" ]; then
+	echo "   => Filtering hiking routes by tags..."
+	if ! osmium tags-filter "$OSH_FILE" r/type=route r/route=hiking -o "$TMP_FILTERED" --overwrite 2>&1; then
+		echo "   ⚠️  Error extracting relations from OSH file"
+		rm -f "$TMP_FILTERED" "$TMP_SORTED"
+		exit 1
+	fi
+else
+	echo "   => Skipping filtering (using existing file)"
 fi
 
 # Vérifier que le fichier filtré contient bien des données
@@ -679,7 +711,7 @@ TMP_OSM_BEFORE_BBOX="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_before
 future_date=$(date -u -d "+10 years" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "2099-12-31T23:59:59Z")
 if ! osmium time-filter "$TMP_FILTERED" "$future_date" -O -o "$TMP_OSM_BEFORE_BBOX" -f osm.pbf 2>&1; then
 	echo "   ⚠️  Error converting OSH to OSM"
-	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_RELATIONS"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX"
 	exit 1
 fi
 
@@ -689,7 +721,7 @@ echo "   => Extracting relations within French Alps bbox ($ALPS_BBOX)..."
 TMP_OSM="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}_latest.osm.pbf"
 if ! osmium extract --bbox "$ALPS_BBOX" -s complete_ways "$TMP_OSM_BEFORE_BBOX" -o "$TMP_OSM" --overwrite 2>&1; then
 	echo "   ⚠️  Error extracting by bbox"
-	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM"
 	exit 1
 fi
 
@@ -704,37 +736,116 @@ if [ "$RELATION_COUNT" = "0" ] || [ -z "$RELATION_COUNT" ]; then
 fi
 echo "   => Found $RELATION_COUNT relations in French Alps bbox"
 
-# Convertir le PBF OSM en JSON pour traitement
-echo "   => Converting to JSON format (this may take a while)..."
-if ! osmium export "$TMP_OSM" -o "$TMP_RELATIONS" --overwrite 2>&1; then
-	echo "   ⚠️  Error converting PBF to JSON"
-	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
+# Utiliser osmium cat pour convertir le PBF en OSM XML
+# osmium cat peut convertir entre formats OSM (PBF, XML, OPL)
+# Spécifier explicitement le format de sortie avec -f osm
+# Ne recréer le fichier que s'il a plus de 24h
+TMP_RELATIONS_XML="$TMP_RELATIONS_DIR/hiking_relations_\${CURRENT_DATE}.osm"
+XML_EXISTS=false
+XML_AGE_HOURS=999
+
+if [ -f "$TMP_RELATIONS_XML" ]; then
+	# Calculer l'âge du fichier en heures
+	XML_MTIME=$(stat -c %Y "$TMP_RELATIONS_XML" 2>/dev/null || stat -f %m "$TMP_RELATIONS_XML" 2>/dev/null || echo "0")
+	CURRENT_TIME=$(date +%s)
+	XML_AGE_SECONDS=$((CURRENT_TIME - XML_MTIME))
+	XML_AGE_HOURS=$((XML_AGE_SECONDS / 3600))
+	
+	if [ "$XML_AGE_HOURS" -lt 24 ]; then
+		# Vérifier que le fichier XML contient bien des relations valides
+		# Compter les relations dans le fichier XML existant
+		EXISTING_XML_RELATION_COUNT=$(grep -c '<relation' "$TMP_RELATIONS_XML" 2>/dev/null || echo "0")
+		
+		# Vérifier que le fichier contient la balise <osm> et des relations
+		HAS_OSM_TAG=$(head -n 5 "$TMP_RELATIONS_XML" 2>/dev/null | grep -c "<osm" || echo "0")
+		
+		# Calculer la différence acceptable (au moins 80% du nombre attendu)
+		EXPECTED_MIN=$((RELATION_COUNT * 80 / 100))
+		
+		if [ "$HAS_OSM_TAG" -gt 0 ] && [ "$EXISTING_XML_RELATION_COUNT" -ge "$EXPECTED_MIN" ]; then
+			echo "   => Using existing OSM XML file (age: $XML_AGE_HOURS hours, less than 24h)"
+			echo "   => Found $EXISTING_XML_RELATION_COUNT relations in existing XML file (expected ~$RELATION_COUNT)"
+			XML_EXISTS=true
+		else
+			echo "   => Existing OSM XML file is invalid or outdated"
+			echo "   => Found $EXISTING_XML_RELATION_COUNT relations but expected at least $EXPECTED_MIN"
+			echo "   => Will recreate the XML file"
+			rm -f "$TMP_RELATIONS_XML"
+			XML_EXISTS=false
+		fi
+	else
+		echo "   => OSM XML file is older than 24h (age: $XML_AGE_HOURS hours), will recreate"
+		XML_EXISTS=false
+	fi
+else
+	XML_EXISTS=false
+fi
+
+if [ "$XML_EXISTS" = "false" ]; then
+	echo "   => Converting to OSM XML format (this may take a while)..."
+	if ! osmium cat "$TMP_OSM" -f osm -o "$TMP_RELATIONS_XML" --overwrite 2>&1; then
+		echo "   ❌ ERROR: Failed to convert PBF to OSM XML"
+		echo "   ❌ Expected $RELATION_COUNT relations but conversion failed"
+		rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS_XML"
+		exit 1
+	fi
+else
+	echo "   => Skipping conversion, using existing OSM XML file"
+fi
+
+# Vérifier que le fichier XML existe et n'est pas vide
+if [ ! -f "$TMP_RELATIONS_XML" ] || [ ! -s "$TMP_RELATIONS_XML" ]; then
+	echo "   ❌ ERROR: OSM XML file is empty or missing after conversion"
+	echo "   ❌ Expected $RELATION_COUNT relations but conversion failed"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS_XML"
 	exit 1
 fi
 
-# Vérifier que le fichier JSON existe et n'est pas vide
-if [ ! -f "$TMP_RELATIONS" ] || [ ! -s "$TMP_RELATIONS" ]; then
-	echo "   ⚠️  JSON file is empty or missing"
-	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS"
-	exit 0
+# Vérifier que le fichier XML est valide (commence par <?xml ou <osm)
+# Le fichier OSM XML standard commence par <?xml version="1.0" encoding="UTF-8"?> suivi de <osm
+FIRST_LINE=$(head -n 1 "$TMP_RELATIONS_XML" 2>/dev/null || echo "")
+if [ -z "$FIRST_LINE" ]; then
+	echo "   ❌ ERROR: OSM XML file is empty or cannot be read"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS_XML"
+	exit 1
+fi
+# Vérifier que la première ligne contient soit <?xml soit <osm
+if ! echo "$FIRST_LINE" | grep -qE "(<\?xml|<osm)"; then
+	echo "   ❌ ERROR: OSM XML file appears to be invalid"
+	echo "   ❌ First line: $FIRST_LINE"
+	echo "   ❌ Expected file to start with <?xml or <osm"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS_XML"
+	exit 1
+fi
+# Vérifier que le fichier contient bien la balise <osm> dans les 5 premières lignes
+if ! head -n 5 "$TMP_RELATIONS_XML" 2>/dev/null | grep -q "<osm"; then
+	echo "   ❌ ERROR: OSM XML file does not contain <osm> tag"
+	echo "   ❌ First line: $FIRST_LINE"
+	echo "   ❌ File may not be a valid OSM XML file"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS_XML"
+	exit 1
 fi
 
-# Compter les relations dans le fichier JSON (format osmium export)
-ELEMENT_COUNT=$(grep -o '"type":"relation"' "$TMP_RELATIONS" 2>/dev/null | wc -l || echo "0")
+# Compter les relations dans le fichier XML
+ELEMENT_COUNT=$(grep -c '<relation' "$TMP_RELATIONS_XML" 2>/dev/null || echo "0")
 if [ "$ELEMENT_COUNT" = "0" ]; then
-	# Essayer un autre format de comptage (peut-être que le format JSON est différent)
-	ELEMENT_COUNT=$(grep -c '"type": "relation"' "$TMP_RELATIONS" 2>/dev/null || echo "0")
+	echo "   ❌ ERROR: No relations found in OSM XML file"
+	echo "   ❌ Expected $RELATION_COUNT relations but found 0 in XML"
+	echo "   ℹ️  File size: $(wc -c < "$TMP_RELATIONS_XML" 2>/dev/null || echo 0) bytes"
+	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS_XML"
+	exit 1
 fi
-if [ "$ELEMENT_COUNT" = "0" ]; then
-	echo "   ⚠️  No relations found in JSON file (format may be different)"
-	echo "   ℹ️  File size: $(wc -c < "$TMP_RELATIONS" 2>/dev/null || echo 0) bytes"
-	rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_SORTED" "$TMP_RELATIONS"
-	exit 0
-fi
-echo "   => Found $ELEMENT_COUNT relations in JSON file"
 
-# Utiliser Node.js pour traiter les relations et leurs membres
-node - "$TMP_RELATIONS" <<'NODEJS'
+# Vérifier que le nombre de relations dans le XML correspond approximativement au nombre attendu
+EXPECTED_MIN=$((RELATION_COUNT * 90 / 100))
+if [ "$ELEMENT_COUNT" -lt "$EXPECTED_MIN" ]; then
+	echo "   ⚠️  WARNING: Found $ELEMENT_COUNT relations in XML but expected at least $EXPECTED_MIN (from $RELATION_COUNT in PBF)"
+	echo "   ℹ️  This may indicate a problem with the conversion, but continuing anyway..."
+fi
+echo "   => Found $ELEMENT_COUNT relations in OSM XML file (expected ~$RELATION_COUNT)"
+
+# Utiliser Node.js pour traiter les relations et leurs membres depuis le XML
+node - "$TMP_RELATIONS_XML" <<'NODEJS'
 const fs = require('fs');
 const { Pool } = require('pg');
 const DB_URL = process.env.DB_URL || '${DB_URL}';
@@ -752,102 +863,147 @@ async function processHikingRoutes() {
 			process.exit(1);
 		}
 		
-		// Traitement en streaming avec traitement par chunks
-		// Utiliser un buffer et parser les objets JSON au fur et à mesure
-		const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 1024 * 1024 });
+		// Parser le fichier OSM XML
+		const xml2js = require('xml2js');
+		const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: true });
 		
-		let buffer = '';
-		let braceDepth = 0;
-		let inString = false;
-		let escapeNext = false;
-		let currentObj = '';
+		const fileContent = fs.readFileSync(filePath, 'utf8');
 		let relations = [];
 		let relationCount = 0;
+		const today = new Date().toISOString().split('T')[0] + 'T23:59:59Z';
+		let processed = 0;
+		let errors = 0;
 		
-		await new Promise((resolve, reject) => {
-			stream.on('data', (chunk) => {
-				buffer += chunk;
+		// Définir processBatch avant de l'utiliser
+		async function processBatch(relationsBatch) {
+			if (!relationsBatch || relationsBatch.length === 0) {
+				return;
+			}
+			for (const rel of relationsBatch) {
+				try {
+					// Vérifier que la relation a un ID valide
+					if (!rel || !rel.id) {
+						console.error(\`   ⚠️  Skipping relation without valid ID\`);
+						errors++;
+						continue;
+					}
+					const osmId = rel.id;
+					const name = rel.tags?.name || null;
+					const tags = JSON.stringify(rel.tags || {});
+					const members = rel.members || [];
+					const memberCount = members.length;
+					
+					// Insérer ou mettre à jour la relation
+					await pool.query(\`
+						INSERT INTO pdm_relation_hiking (osm_id, name, tags, created_at)
+						VALUES (\$1, \$2, \$3::jsonb, NOW())
+						ON CONFLICT (osm_id) DO UPDATE SET
+							name = EXCLUDED.name,
+							tags = EXCLUDED.tags
+					\`, [osmId, name, tags]);
+					
+					// Insérer le décompte de membres pour aujourd'hui
+					await pool.query(\`
+						INSERT INTO pdm_relation_hiking_members (relation_id, ts, member_count, changeset_id, username, userid)
+						VALUES (\$1, \$2, \$3, NULL, NULL, NULL)
+						ON CONFLICT (relation_id, ts) DO UPDATE SET
+							member_count = EXCLUDED.member_count
+					\`, [osmId, today, memberCount]);
+					
+					processed++;
+				} catch (relError) {
+					console.error(\`   ⚠️  Error processing relation \${rel.id}: \${relError.message}\`);
+					errors++;
+				}
+			}
+		}
+		
+		try {
+			const result = await parser.parseStringPromise(fileContent);
+			const osm = result.osm;
+			
+			if (!osm) {
+				console.error('   ❌ ERROR: Invalid OSM XML structure - no osm element found');
+				console.error('   ❌ Result keys:', Object.keys(result || {}));
+				process.exit(1);
+			}
+			
+			// Debug: afficher les clés disponibles dans osm
+			const osmKeys = Object.keys(osm);
+			if (!osm.relation) {
+				console.error('   ❌ ERROR: No relations found in OSM XML');
+				console.error('   ❌ Available elements in OSM:', osmKeys.join(', '));
+				if (osm.node) {
+					const nodeCount = Array.isArray(osm.node) ? osm.node.length : 1;
+					console.error(\`   ℹ️  Found \${nodeCount} node(s) in XML\`);
+				}
+				if (osm.way) {
+					const wayCount = Array.isArray(osm.way) ? osm.way.length : 1;
+					console.error(\`   ℹ️  Found \${wayCount} way(s) in XML\`);
+				}
+				process.exit(1);
+			}
+			
+			// Gérer le cas où il n'y a qu'une seule relation (pas un tableau)
+			const relationsArray = Array.isArray(osm.relation) ? osm.relation : [osm.relation];
+			
+			for (const rel of relationsArray) {
+				// Vérifier que rel existe et a la structure attendue avec les attributs $
+				if (!rel || !rel.$ || typeof rel.$ !== 'object' || !rel.$.id) {
+					// Ignorer les éléments qui ne sont pas des relations valides
+					// (peut arriver si le XML contient d'autres types d'éléments)
+					continue;
+				}
 				
-				for (let i = 0; i < buffer.length; i++) {
-					const char = buffer[i];
-					
-					if (escapeNext) {
-						currentObj += char;
-						escapeNext = false;
-						continue;
-					}
-					
-					if (char === '\\\\') {
-						escapeNext = true;
-						currentObj += char;
-						continue;
-					}
-					
-					if (char === '"' && !escapeNext) {
-						inString = !inString;
-						currentObj += char;
-						continue;
-					}
-					
-					if (inString) {
-						currentObj += char;
-						continue;
-					}
-					
-					if (char === '{') {
-						if (braceDepth === 0) {
-							currentObj = '{';
-						} else {
-							currentObj += char;
+				// Convertir la relation XML en format JSON standard
+				const relation = {
+					id: parseInt(rel.$.id),
+					type: 'relation',
+					tags: {},
+					members: []
+				};
+				
+				// Extraire les tags
+				if (rel.tag) {
+					const tagsArray = Array.isArray(rel.tag) ? rel.tag : [rel.tag];
+					for (const tag of tagsArray) {
+						if (tag.$.k && tag.$.v) {
+							relation.tags[tag.$.k] = tag.$.v;
 						}
-						braceDepth++;
-					} else if (char === '}') {
-						currentObj += char;
-						braceDepth--;
-						
-						if (braceDepth === 0) {
-							try {
-								const obj = JSON.parse(currentObj);
-								if (obj.type === 'relation') {
-									relations.push(obj);
-									relationCount++;
-									if (relationCount % 100 === 0) {
-										console.log(\`   => Processing... \${relationCount} relations found so far\`);
-									}
-									// Traiter immédiatement si on a assez de relations pour éviter la surcharge mémoire
-									if (relations.length >= 50) {
-										processBatch(relations);
-										relations = [];
-									}
-								}
-							} catch (e) {
-								// Ignorer les erreurs de parsing
-							}
-							currentObj = '';
-						}
-					} else if (braceDepth > 0) {
-						currentObj += char;
 					}
 				}
 				
-				// Garder seulement la partie non traitée du buffer
-				if (braceDepth === 0) {
-					buffer = '';
-				} else {
-					// Garder la partie en cours de traitement
-					buffer = currentObj;
-					currentObj = '';
+				// Extraire les membres
+				if (rel.member) {
+					const membersArray = Array.isArray(rel.member) ? rel.member : [rel.member];
+					for (const member of membersArray) {
+						if (member.$.type && member.$.ref) {
+							relation.members.push({
+								type: member.$.type,
+								ref: parseInt(member.$.ref),
+								role: member.$.role || ''
+							});
+						}
+					}
 				}
-			});
-			
-			stream.on('end', () => {
-				resolve();
-			});
-			
-			stream.on('error', (err) => {
-				reject(err);
-			});
-		});
+				
+				relations.push(relation);
+				relationCount++;
+				
+				if (relationCount % 100 === 0) {
+					console.log(\`   => Processing... \${relationCount} relations found so far\`);
+				}
+				
+				if (relations.length >= 50) {
+					await processBatch(relations);
+					relations = [];
+				}
+			}
+		} catch (e) {
+			console.error('   ❌ ERROR: Failed to parse OSM XML:', e.message);
+			console.error(e.stack);
+			process.exit(1);
+		}
 		
 		// Traiter les dernières relations
 		if (relations.length > 0) {
@@ -855,56 +1011,27 @@ async function processHikingRoutes() {
 		}
 		
 		if (relationCount === 0) {
-			console.log('   ⚠️  No relations found in file');
+			console.error('   ❌ ERROR: No relations found in OSM XML file');
+			console.error('   ❌ Expected relations but parsing found none');
 			await pool.end();
-			process.exit(0);
+			process.exit(1);
 		}
 		
 		console.log(\`   => Found \${relationCount} hiking routes total\`);
 		
-		const today = new Date().toISOString().split('T')[0] + 'T23:59:59Z';
-		let processed = 0;
-		let errors = 0;
-		
-		async function processBatch(relationsBatch) {
-			for (const rel of relationsBatch) {
-			try {
-				const osmId = rel.id;
-				const name = rel.tags?.name || null;
-				const tags = JSON.stringify(rel.tags || {});
-				const members = rel.members || [];
-				const memberCount = members.length;
-				
-				// Insérer ou mettre à jour la relation
-				await pool.query(\`
-					INSERT INTO pdm_relation_hiking (osm_id, name, tags, created_at)
-					VALUES (\$1, \$2, \$3::jsonb, NOW())
-					ON CONFLICT (osm_id) DO UPDATE SET
-						name = EXCLUDED.name,
-						tags = EXCLUDED.tags
-				\`, [osmId, name, tags]);
-				
-				// Insérer le décompte de membres pour aujourd'hui
-				// Note: changeset_id, username, userid ne sont pas disponibles directement depuis osmium export
-				// On les laisse NULL pour l'instant, ils seront mis à jour lors des mises à jour via l'API OSM
-				await pool.query(\`
-					INSERT INTO pdm_relation_hiking_members (relation_id, ts, member_count, changeset_id, username, userid)
-					VALUES (\$1, \$2, \$3, NULL, NULL, NULL)
-					ON CONFLICT (relation_id, ts) DO UPDATE SET
-						member_count = EXCLUDED.member_count
-				\`, [osmId, today, memberCount]);
-				
-				processed++;
-			} catch (relError) {
-				console.error(\`   ⚠️  Error processing relation \${rel.id}: \${relError.message}\`);
-				errors++;
-			}
-			}
+		console.log(\`   => Processed \${processed} hiking routes successfully\`);
+		if (errors > 0) {
+			console.error(\`   ⚠️  \${errors} relations had errors\`);
 		}
 		
-		console.log(\`   => Processed \${relationCount} hiking routes successfully\`);
-		if (errors > 0) {
-			console.log(\`   ⚠️  \${errors} relations had errors\`);
+		if (processed === 0 && relationCount > 0) {
+			console.error('   ❌ ERROR: Found relations but none were processed successfully');
+			await pool.end();
+			process.exit(1);
+		}
+		
+		if (processed < relationCount * 0.9) {
+			console.error(\`   ⚠️  WARNING: Only processed \${processed} out of \${relationCount} relations (less than 90%)\`);
 		}
 		
 		await pool.end();
@@ -920,7 +1047,7 @@ processHikingRoutes();
 NODEJS
 
 # Nettoyer les fichiers temporaires
-rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS"
+rm -f "$TMP_FILTERED" "$TMP_OSM_BEFORE_BBOX" "$TMP_OSM" "$TMP_RELATIONS_XML"
 fi
 `;
 

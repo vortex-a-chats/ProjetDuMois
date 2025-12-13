@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les lieux de santé sont essentiels pour l'accès aux soins. Cartographions ensemble tous les lieux de santé dans OpenStreetMap ! #Santé #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Medical_symbol.svg/800px-Medical_symbol.svg.png",
+  "image": "/images/projects/healthcare.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:healthcare"
   },

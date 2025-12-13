@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les fontaines à eau sont essentielles pour l'hydratation en ville. Cartographions ensemble toutes les fontaines à eau dans OpenStreetMap ! #Fontaines #EauPotable #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Drinking_water_fountain_icon.svg/800px-Drinking_water_fountain_icon.svg.png",
+  "image": "/images/projects/drinking_water_2025.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Ddrinking_water"
   },

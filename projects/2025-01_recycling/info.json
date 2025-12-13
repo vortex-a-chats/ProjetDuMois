@@ -4,7 +4,7 @@
   "start_date": "2025-01-01",
   "end_date": "2026-06-01",
   "summary": "Les points d'apport volontaire permettent de trier et recycler nos déchets. Cartographions ensemble tous les points d'apport volontaire dans OpenStreetMap ! #Recyclage #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Recycling_symbol.svg/800px-Recycling_symbol.svg.png",
+  "image": "/images/projects/recycling.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Drecycling"
   },

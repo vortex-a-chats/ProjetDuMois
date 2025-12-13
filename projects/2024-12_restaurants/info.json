@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les restaurants sont essentiels pour la vie locale. Cartographions ensemble tous les restaurants dans OpenStreetMap ! #Restaurants #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&auto=format&fit=crop",
+  "image": "/images/projects/restaurants.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Drestaurant"
   },

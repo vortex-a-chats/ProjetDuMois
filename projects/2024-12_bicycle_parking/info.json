@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les parkings vélo sont essentiels pour encourager la mobilité douce. Cartographions ensemble tous les parkings vélo dans OpenStreetMap ! #Vélo #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&auto=format&fit=crop",
+  "image": "/images/projects/bicycle_parking.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:amenity%3Dbicycle_parking"
   },

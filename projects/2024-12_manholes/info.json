@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les bouches d'égout sont essentielles pour la gestion des eaux pluviales et usées. Cartographions ensemble toutes les bouches d'égout dans OpenStreetMap ! #BouchesÉgout #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop",
+  "image": "/images/projects/manholes.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:man_made%3Dmanhole"
   },

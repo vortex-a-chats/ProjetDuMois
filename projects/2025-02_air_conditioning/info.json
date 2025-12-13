@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les lieux climatisés offrent un confort essentiel lors des vagues de chaleur. Cartographions ensemble tous les lieux climatisés dans OpenStreetMap ! #Climatisation #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Air_conditioning_icon.svg/800px-Air_conditioning_icon.svg.png",
+  "image": "/images/projects/air_conditioning.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:air_conditioning"
   },

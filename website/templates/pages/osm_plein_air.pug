@@ -24,6 +24,32 @@ block content
 			h1.font-italic= __("OSM Plein Air")
 			p.lead.mb-0= __("Surveillance des itinéraires de randonnée (type=route, route=hiking)")
 
+	div.container-fluid.py-3
+		div.container
+			div.row
+				div.col-12
+					div.card.mb-4
+						div.card-body
+							div.row
+								div.col-md-4.mb-3.mb-md-0
+									h6.mb-2= __("Périmètre considéré")
+									p.mb-0
+										| #{__("Alpes françaises")} 
+										br
+										small.text-muted
+											| #{__("Bbox")}: #{bbox ? bbox.west : '5.0'}, #{bbox ? bbox.south : '44.0'}, #{bbox ? bbox.east : '7.5'}, #{bbox ? bbox.north : '46.5'}
+								div.col-md-4.mb-3.mb-md-0
+									h6.mb-2= __("Nombre total de relations")
+									p.mb-0
+										strong.text-primary= (totalCount || 0).toLocaleString()
+										|  #{__("itinéraires")}
+								div.col-md-4
+									h6.mb-2= __("Documentation")
+									p.mb-0
+										a.btn.btn-sm.btn-outline-primary(href="https://wiki.openstreetmap.org/wiki/Relation:route" target="_blank" rel="noopener noreferrer")
+											i.fa.fa-external-link-alt.mr-1
+											= __("Wiki OSM - Relations route")
+
 	div.container-fluid.py-5.pdm-section-highlight
 		div.container
 			div.row

@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les bornes incendie sont essentielles pour la sécurité incendie. Cartographions ensemble toutes les bornes incendie dans OpenStreetMap ! #BorneIncendie #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Fire_hydrant_icon.svg/800px-Fire_hydrant_icon.svg.png",
+  "image": "/images/projects/fire_hydrant.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Tag:emergency%3Dfire_hydrant"
   },

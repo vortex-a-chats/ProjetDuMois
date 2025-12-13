@@ -4,7 +4,7 @@
   "start_date": "2025-02-01",
   "end_date": "2026-06-01",
   "summary": "Les centres de données sont essentiels pour l'infrastructure numérique. Cartographions ensemble tous les centres de données dans OpenStreetMap ! #DataCenter #ProjetDuMois",
-  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Server_icon.svg/800px-Server_icon.svg.png",
+  "image": "/images/projects/data_center.png",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:telecom"
   },
@@ -14,12 +14,11 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "telecom=data_center w/telecom=data_center r/telecom=data_center",
+    "osmium_tag_filter": "telecom=data_center",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {
-        "telecom": ["data_center"],
-        "building": ["data_center"]
+        "telecom": ["data_center"]
       }
     }
   },

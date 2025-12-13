@@ -278,6 +278,49 @@ block content
 				p
 					a(href=CONFIG.OSM_URL target="_blank")= __("Retrouvez l'ensemble des données directement sur le site d'OpenStreetMap.")
 			
+			//- Overpass Turbo link if project has tag filter
+			if !isNext && database && database.osmium_tag_filter
+				div.mt-4
+					- var filterParts = database.osmium_tag_filter.split('/')
+					- var elementType = filterParts[0] || 'nwr'
+					- var tagParts = (filterParts[1] || '').split('=')
+					- var tagKey = tagParts[0] || ''
+					- var tagValue = tagParts[1] || ''
+					- var hasValidFilter = tagKey && tagValue
+					if hasValidFilter
+						- var bboxCoords = CONFIG.GEOJSON_BOUNDS && CONFIG.GEOJSON_BOUNDS.coordinates && CONFIG.GEOJSON_BOUNDS.coordinates[0] ? CONFIG.GEOJSON_BOUNDS.coordinates[0] : null
+						- var minLon = -5.0
+						- var minLat = 41.0
+						- var maxLon = 10.0
+						- var maxLat = 51.0
+						if bboxCoords && bboxCoords.length > 0
+							- minLon = bboxCoords[0][0]
+							- minLat = bboxCoords[0][1]
+							- maxLon = bboxCoords[0][0]
+							- maxLat = bboxCoords[0][1]
+							each coord in bboxCoords
+								if coord[0] < minLon
+									- minLon = coord[0]
+								if coord[0] > maxLon
+									- maxLon = coord[0]
+								if coord[1] < minLat
+									- minLat = coord[1]
+								if coord[1] > maxLat
+									- maxLat = coord[1]
+						- var overpassQueries = []
+						if elementType.includes('n')
+							- overpassQueries.push('node["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
+						if elementType.includes('w')
+							- overpassQueries.push('way["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
+						if elementType.includes('r')
+							- overpassQueries.push('relation["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
+						- var overpassQuery = '[out:json][timeout:25];\n(\n  ' + overpassQueries.join('  ') + '\n);\nout geom;'
+						- var overpassTurboUrl = 'https://overpass-turbo.eu/?Q=' + encodeURIComponent(overpassQuery) + '&R&bbox=' + minLon + ',' + minLat + ',' + maxLon + ',' + maxLat
+						p= __("Interroger les objets de ce projet avec Overpass Turbo :")
+						a.btn.btn-outline-primary(href=overpassTurboUrl target="_blank" rel="noopener noreferrer")
+							i.fa.fa-external-link-alt.mr-2
+							= __("Ouvrir dans Overpass Turbo")
+			
 			//- API section for zone-based statistics
 			if !isNext && statistics && statistics.count
 				div.mt-5

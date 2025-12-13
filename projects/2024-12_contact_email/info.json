@@ -4,7 +4,7 @@
   "start_date": "2018-12-01",
   "end_date": "2026-06-01",
   "summary": "Les lieux avec une adresse email sont plus facilement contactables. Complétons les informations de contact dans OpenStreetMap ! #ContactEmail #ProjetDuMois",
-  "image": "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop",
+  "image": "/images/projects/contact_email.jpg",
   "links": {
     "osmwiki": "https://wiki.openstreetmap.org/wiki/FR:Key:contact:email"
   },
