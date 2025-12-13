@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=manhole",
+    "osmium_tag_filter": "man_made=manhole",
     "imposm": {
       "types": ["point"],
       "mapping": {

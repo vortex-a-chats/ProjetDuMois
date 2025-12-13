@@ -9,7 +9,7 @@
 		"osmblog": "https://www.openstreetmap.fr/projet-du-mois-defibrillateurs/"
 	},
 	"database": {
-		"osmium_tag_filter": "n/emergency=defibrillator",
+		"osmium_tag_filter": "emergency=defibrillator",
 		"imposm": {
 			"types": ["point"],
 			"mapping": { "emergency": ["defibrillator"] }

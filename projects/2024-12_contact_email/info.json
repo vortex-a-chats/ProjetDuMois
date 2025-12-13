@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/contact:email w/contact:email",
+    "osmium_tag_filter": "contact:email w/contact:email",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

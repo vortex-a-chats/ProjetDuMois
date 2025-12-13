@@ -557,7 +557,13 @@ Une fois que vous avez constaté que tout fonctionnait, lancez-vous avec docker-
 Pour démarrer :
 
 ```
-docker-compose up
+# initialisation et récupération des données depuis geofabrik
+docker-compose up -d
+docker-compose exec pdm ./docker-entrypoint.sh init
+docker-compose exec pdm ./docker-entrypoint.sh update_daily
+# démarrage du frontend sur le port 3000
+docker-compose exec pdm ./docker-entrypoint.sh start
+firefox http://localhost:3000
 ```
 
 Pour arrêter :

@@ -83,6 +83,8 @@
 		<xsl:call-template name="escape-string"><xsl:with-param name="s" select="@user"/></xsl:call-template>
 		<xsl:text>",</xsl:text>
 		<xsl:value-of select="@uid" />
+		<xsl:text>,</xsl:text>
+		<xsl:value-of select="@changeset" />
 		<xsl:text>,"{</xsl:text>
 		<xsl:apply-templates select="tag" />
 		<xsl:text>}"</xsl:text>

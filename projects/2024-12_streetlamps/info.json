@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=street_lamp",
+    "osmium_tag_filter": "amenity=street_lamp",
     "imposm": {
       "types": ["point"],
       "mapping": {

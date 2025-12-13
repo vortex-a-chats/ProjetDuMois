@@ -16,7 +16,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=restaurant",
+    "osmium_tag_filter": "amenity=restaurant",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

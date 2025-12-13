@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/air_conditioning w/air_conditioning r/air_conditioning",
+    "osmium_tag_filter": "air_conditioning w/air_conditioning r/air_conditioning",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

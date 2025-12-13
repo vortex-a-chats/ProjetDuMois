@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=doctors n/amenity=pharmacy n/amenity=hospital n/amenity=clinic n/amenity=social_facility n/healthcare w/amenity=doctors w/amenity=pharmacy w/amenity=hospital w/amenity=clinic w/amenity=social_facility w/healthcare r/amenity=doctors r/amenity=pharmacy r/amenity=hospital r/amenity=clinic r/amenity=social_facility r/healthcare",
+    "osmium_tag_filter": "amenity=doctors n/amenity=pharmacy n/amenity=hospital n/amenity=clinic n/amenity=social_facility n/healthcare w/amenity=doctors w/amenity=pharmacy w/amenity=hospital w/amenity=clinic w/amenity=social_facility w/healthcare r/amenity=doctors r/amenity=pharmacy r/amenity=hospital r/amenity=clinic r/amenity=social_facility r/healthcare",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=bicycle_parking",
+    "osmium_tag_filter": "amenity=bicycle_parking",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

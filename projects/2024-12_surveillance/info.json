@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/man_made=surveillance",
+    "osmium_tag_filter": "man_made=surveillance",
     "imposm": {
       "types": ["point"],
       "mapping": {

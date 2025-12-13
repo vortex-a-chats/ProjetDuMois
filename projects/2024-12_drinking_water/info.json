@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=drinking_water",
+    "osmium_tag_filter": "amenity=drinking_water",
     "imposm": {
       "types": ["point"],
       "mapping": {

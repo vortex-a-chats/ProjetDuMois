@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=public_bookcase",
+    "osmium_tag_filter": "amenity=public_bookcase",
     "imposm": {
       "types": ["point"],
       "mapping": {

@@ -14,11 +14,12 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/telecom=data_center w/telecom=data_center r/telecom=data_center",
+    "osmium_tag_filter": "telecom=data_center w/telecom=data_center r/telecom=data_center",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {
-        "telecom": ["data_center"]
+        "telecom": ["data_center"],
+        "building": ["data_center"]
       }
     }
   },

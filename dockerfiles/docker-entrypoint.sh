@@ -11,12 +11,13 @@ AVAILABLE_COMMANDS=(
     "start: Start the web server"
     "update_pbf: Update OSH PBF file"
     "update_features: Update OSM features in database (optionally specify project ID)"
-    "update_projects: Update project statistics and history (optionally specify project ID)"
+    "update_projects: Update project statistics and history (optionally specify project ID, use --force-recalculate to recalculate all dates)"
     "update_quality: Calculate quality completion only"
     "update_global_stats: Update global statistics (notes France, hiking routes)"
     "update_daily: Run daily updates (PBF, features, projects, global stats)"
     "uninstall: Uninstall projects from database"
     "count_objects: Count objects in OSH file for a project (optionally specify project ID)"
+    "latest_stats: Show latest measurement and date for each project"
     "list: List all available commands"
     "help: Show this help message"
 )
@@ -138,11 +139,17 @@ list_commands() {
     echo "  # Update a specific project:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_projects 2024-12_streetlamps"
     echo ""
+    echo "  # Update projects and force recalculation of all dates:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_projects --force-recalculate"
+    echo ""
     echo "  # Update features for a specific project:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_features 2024-12_streetlamps"
     echo ""
     echo "  # Count objects in OSH file for a project:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh count_objects 2025-01_ask_angela"
+    echo ""
+    echo "  # Show latest measurement and date for each project:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh latest_stats"
 }
 
 if [ -z $DB_URL ]; then
@@ -247,7 +254,8 @@ case $command in
     fi
     ;;
 "update_projects")
-    npm run projects:update -- $otherArgs
+    # Passer les arguments (y compris --force-recalculate) au script Node.js
+    node db/30_projects_update.js $otherArgs
     if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
         /tmp/pdm/31_projects_update_tmp.sh $otherArgs
     elif [ -f "./db/31_projects_update_tmp.sh" ]; then
@@ -345,52 +353,8 @@ NODE
         exit 1
     fi
     echo ""
-    echo "== Calculate quality completion scores"
-    echo "Collecte des projets avec mesure de qualité..."
-    PROJECTS_WITH_TAGS=$(node - <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const projectsDir = path.join(process.cwd(), 'projects');
-const results = [];
-fs.readdirSync(projectsDir).forEach((proj) => {
-  const infoPath = path.join(projectsDir, proj, 'info.json');
-  try {
-    const data = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
-    const tags = data.quality && Array.isArray(data.quality.required_tags) ? data.quality.required_tags : [];
-    if (tags.length > 0) {
-      const tagList = tags.map(t => "'" + String(t).replace(/'/g, "''") + "'").join(',');
-      results.push(proj + "|" + tagList);
-    }
-  } catch (e) {
-    // ignore invalid json or missing files
-  }
-});
-results.forEach(r => console.log(r));
-NODE
-)
-    if [ -n "$PROJECTS_WITH_TAGS" ]; then
-        ERROR_COUNT=0
-        while IFS='|' read -r PROJ TAGS; do
-            [ -z "$PROJ" ] && continue
-            echo "   => Calculate quality completion for $PROJ (all dates)"
-            SQL="SELECT pdm_calculate_quality_completion_all_dates('${PROJ//\'/\'\'}', ARRAY[${TAGS}]);"
-            if ! psql -d "$DB_URL" -v ON_ERROR_STOP=1 -c "$SQL"; then
-                echo "   ❌ Erreur lors du calcul pour $PROJ"
-                ERROR_COUNT=$((ERROR_COUNT + 1))
-            else
-                echo "   ✓ Calcul réussi pour $PROJ"
-            fi
-        done <<< "$PROJECTS_WITH_TAGS"
-        if [ $ERROR_COUNT -gt 0 ]; then
-            echo ""
-            echo "⚠️  $ERROR_COUNT projet(s) ont échoué lors du calcul de complétion"
-        else
-            echo ""
-            echo "✓ Tous les projets ont été traités avec succès"
-        fi
-    else
-        echo "Aucun projet avec quality.required_tags détecté."
-    fi
+    echo "== Calculate quality completion scores (DISABLED)"
+    echo "   ⏭️  Quality completion calculation is currently disabled"
     echo ""
     echo "== Update global statistics"
     node db/40_global_stats_update.js
@@ -527,6 +491,44 @@ NODE
             echo "✓ Counts match!"
         fi
     fi
+    ;;
+"latest_stats")
+    echo "== Mesure la plus récente par projet"
+    echo ""
+    psql -d "$DB_URL" -t -A -F "|" -c "
+    SELECT 
+        p.project,
+        to_char(p.start_date, 'YYYY-MM-DD') AS start_date,
+        to_char(p.end_date, 'YYYY-MM-DD') AS end_date,
+        to_char(p.lastupdate_date, 'YYYY-MM-DD HH24:MI:SS') AS lastupdate_date,
+        COALESCE(
+            to_char((SELECT ts FROM pdm_feature_counts 
+             WHERE project = p.project 
+             ORDER BY ts DESC LIMIT 1), 'YYYY-MM-DD HH24:MI:SS'),
+            'Aucune'
+        ) AS latest_measurement_date,
+        COALESCE(
+            (SELECT amount FROM pdm_feature_counts 
+             WHERE project = p.project 
+             ORDER BY ts DESC LIMIT 1)::text,
+            '0'
+        ) AS latest_measurement_count,
+        (SELECT COUNT(*)::text FROM pdm_feature_counts WHERE project = p.project) AS total_measurements
+    FROM pdm_projects p
+    ORDER BY p.project;
+    " 2>/dev/null | while IFS='|' read -r project start_date end_date lastupdate_date latest_measurement_date latest_measurement_count total_measurements; do
+        if [ -n "$project" ]; then
+            printf "%-30s | Dernière mesure: %-19s | Nombre: %10s | Total mesures: %s\n" \
+                "$project" \
+                "$latest_measurement_date" \
+                "$latest_measurement_count" \
+                "$total_measurements"
+        fi
+    done || {
+        echo "ERROR: Failed to query database"
+        exit 1
+    }
+    echo ""
     ;;
 *)
     echo "Command $command unknown"

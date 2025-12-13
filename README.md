@@ -18,6 +18,12 @@ The API is fully documented using OpenAPI 3.0 (Swagger). You can:
 * Access the Swagger file: [docs/swagger.yaml](docs/swagger.yaml)
 * View API routes documentation: [docs/API_ROUTES.md](docs/API_ROUTES.md)
 
+## Database Schema
+
+The database schema and relationships between tables are documented in [docs/database_schema.md](docs/database_schema.md).
+
+![Database Schema](docs/database_schema.jpg)
+
 This project embraces the [digital principles for development](https://digitalprinciples.org/).
 
 ![Logo of digital principles for development](/website/images/pdd-en.png)
@@ -81,6 +87,12 @@ L'API est entièrement documentée en OpenAPI 3.0 (Swagger). Vous pouvez :
 * Consulter la documentation interactive : Voir [docs/SWAGGER.md](docs/SWAGGER.md) pour les instructions
 * Accéder au fichier Swagger : [docs/swagger.yaml](docs/swagger.yaml)
 * Consulter la documentation des routes : [docs/API_ROUTES.md](docs/API_ROUTES.md)
+
+## Schéma de la base de données
+
+Le schéma de la base de données et les relations entre les tables sont documentés dans [docs/database_schema.md](docs/database_schema.md).
+
+![Schéma de la base de données](docs/database_schema.jpg)
 
 Ce projet adhère aux [principes pour le développement numérique](https://digitalprinciples.org/).
 ![Logo des principes pour le développement numérique](/website/images/pdd.png)

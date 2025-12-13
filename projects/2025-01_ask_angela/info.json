@@ -1,7 +1,7 @@
 {
   "id": "2025-01_ask_angela",
   "title": "Ask for Angela",
-  "start_date": "2025-01-01",
+  "start_date": "2024-01-01",
   "end_date": "2026-06-30",
   "summary": "Ask for Angela est un système de sécurité permettant aux personnes en situation de détresse de demander de l'aide discrètement dans les établissements. Cartographions ensemble tous les établissements Ask for Angela dans OpenStreetMap ! #AskForAngela #ProjetDuMois",
   "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Help_symbol.svg/800px-Help_symbol.svg.png",
@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/harassment_prevention=ask_angela",
+    "osmium_tag_filter": "harassment_prevention=ask_angela",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

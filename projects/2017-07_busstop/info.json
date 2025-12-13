@@ -9,7 +9,7 @@
 		"osmblog": "https://nlehuby.5apps.com/bien-cartographier-les-bus.html"
 	},
 	"database": {
-		"osmium_tag_filter": "n/highway=bus_stop",
+		"osmium_tag_filter": "highway=bus_stop",
 		"imposm": {
 			"types": ["point", "polygon"],
 			"mapping": {

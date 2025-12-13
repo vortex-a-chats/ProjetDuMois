@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/leisure=playground w/leisure=playground r/leisure=playground",
+    "osmium_tag_filter": "leisure=playground w/leisure=playground r/leisure=playground",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

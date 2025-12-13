@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/emergency=fire_hydrant",
+    "osmium_tag_filter": "emergency=fire_hydrant",
     "imposm": {
       "types": ["point"],
       "mapping": {

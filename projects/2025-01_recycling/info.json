@@ -14,7 +14,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=recycling",
+    "osmium_tag_filter": "amenity=recycling",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {

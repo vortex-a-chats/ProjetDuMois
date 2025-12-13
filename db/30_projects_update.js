@@ -6,8 +6,11 @@ const fetch = require('node-fetch');
 const booleanContains = require('@turf/boolean-contains').default;
 const {Pool, Client} = require('pg')
 
-// Get project filter from command line arguments
-const targetProjectId = process.argv[2] || null;
+// Get project filter and options from command line arguments
+const args = process.argv.slice(2);
+const forceRecalculate = args.includes('--force-recalculate') || process.env.FORCE_RECALCULATE === 'true';
+const targetProjectId = args.find(arg => !arg.startsWith('--') && projects[arg]) || null;
+
 let projectsToProcess = Object.values(projects);
 
 if (targetProjectId) {
@@ -21,6 +24,12 @@ if (targetProjectId) {
 	console.log(`Processing only project: ${targetProjectId}`);
 } else {
 	console.log(`Processing all ${projectsToProcess.length} projects`);
+}
+
+if (forceRecalculate) {
+	console.log(`Mode: Force recalculation of all dates (--force-recalculate enabled)`);
+} else {
+	console.log(`Mode: Calculate only missing dates (default)`);
 }
 
 /*
@@ -171,13 +180,18 @@ pgPool.query(projectsQry, (err, res) => {
 	console.log(projectLength+" project(s) installed");
 });
 
-projectPointsQry = `${projectPointsQry.substring(0, projectPointsQry.length-1)} ON CONFLICT (project, contrib) DO UPDATE SET points=EXCLUDED.points`;
-pgPool.query(projectPointsQry, (err, res) => {
-	if (err){
-		throw new Error(`Erreur installation points projet: ${err}`);
-	}
-	console.log(projectPointsLength+" project(s) point(s) installed");
-});
+// Ne construire et exécuter la requête que s'il y a des points à insérer
+if (projectPointsLength > 0) {
+	projectPointsQry = `${projectPointsQry.substring(0, projectPointsQry.length-1)} ON CONFLICT (project, contrib) DO UPDATE SET points=EXCLUDED.points`;
+	pgPool.query(projectPointsQry, (err, res) => {
+		if (err){
+			throw new Error(`Erreur installation points projet: ${err}`);
+		}
+		console.log(projectPointsLength+" project(s) point(s) installed");
+	});
+} else {
+	console.log("No project points to install");
+}
 
 // Script text
 const separator = `echo "-------------------------------------------------------------------"
@@ -213,6 +227,43 @@ ${separator}
 
 // Vérifier que le fichier OSH existe et a une taille valide avant de traiter les projets
 script += `
+# Vérifier que osc2csv.xslt existe, le télécharger si nécessaire
+OSC2CSV="${OSC2CSV}"
+if [ ! -f "$OSC2CSV" ]; then
+	echo "   ⚠️  osc2csv.xslt not found at $OSC2CSV, attempting to download..."
+	# Créer le répertoire si nécessaire
+	OSC2CSV_DIR=$(dirname "$OSC2CSV")
+	if [ ! -d "$OSC2CSV_DIR" ]; then
+		mkdir -p "$OSC2CSV_DIR"
+		echo "   => Created directory: $OSC2CSV_DIR"
+	fi
+	# Essayer de télécharger depuis le dépôt GitHub
+	REPO_URL="https://raw.githubusercontent.com/vdct/ProjetDuMois/main/db/osc2csv.xslt"
+	if command -v wget >/dev/null 2>&1; then
+		if wget -q -O "$OSC2CSV" "$REPO_URL" 2>/dev/null && [ -f "$OSC2CSV" ] && [ -s "$OSC2CSV" ]; then
+			echo "   ✓ osc2csv.xslt downloaded successfully from GitHub"
+		else
+			echo "   ❌ Failed to download osc2csv.xslt from $REPO_URL or file is empty"
+			echo "   Please ensure the file exists at $OSC2CSV"
+			exit 1
+		fi
+	elif command -v curl >/dev/null 2>&1; then
+		if curl -s -o "$OSC2CSV" "$REPO_URL" 2>/dev/null && [ -f "$OSC2CSV" ] && [ -s "$OSC2CSV" ]; then
+			echo "   ✓ osc2csv.xslt downloaded successfully from GitHub"
+		else
+			echo "   ❌ Failed to download osc2csv.xslt from $REPO_URL or file is empty"
+			echo "   Please ensure the file exists at $OSC2CSV"
+			exit 1
+		fi
+	else
+		echo "   ❌ Neither wget nor curl is available to download osc2csv.xslt"
+		echo "   Please ensure the file exists at $OSC2CSV"
+		exit 1
+	fi
+else
+	echo "   ✓ osc2csv.xslt found at $OSC2CSV"
+fi
+
 # Vérifier que le fichier OSH existe et a une taille valide (au moins 8 Go)
 if [ ! -f "${OSH_UPDATED}" ]; then
 	echo "ERROR: OSH file not found: ${OSH_UPDATED}"
@@ -246,6 +297,7 @@ projectsToProcess.forEach(project => {
 
 	script += `
 echo "== Begin process for project ${project.id}"
+FORCE_RECALCULATE="${forceRecalculate ? 'true' : 'false'}"
 prev_timestamp=$(${PSQL} -qtAc "SELECT to_char (lastupdate_date at time zone 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS\\"Z\\"') from pdm_projects where project='${project.id}'")
 if [ -n "\$prev_timestamp" ]; then
 	echo "Starting from project last update: $prev_timestamp"
@@ -257,91 +309,162 @@ ${separator}
 cur_timestamp=$(date -Idate --utc)
 cnt_timestamp=$(date -Idate --utc -d ${project.start_date})
 prj_timestamp=$(date -Idate --utc -d ${project.start_date})
-if [[ -n "\$prev_timestamp" ]]; then
+# Si --force-recalculate est activé, toujours utiliser start_date du projet
+if [ "$FORCE_RECALCULATE" != "true" ] && [[ -n "\$prev_timestamp" ]]; then
 	cnt_timestamp=$(date -Idate --utc -d \$prev_timestamp)
 fi
 if [[ -z \$cnt_timestamp || \$prj_timestamp>=\$cnt_timestamp ]]; then
 	cnt_timestamp=$prj_timestamp
 fi
 
+# Vérifier si la dernière mise à jour date de moins de 24 heures
+SKIP_EXTRACTION=false
+if [[ -n "\$prev_timestamp" ]]; then
+	# Convertir prev_timestamp en timestamp Unix (format ISO 8601: YYYY-MM-DDTHH:MM:SSZ)
+	# Essayer différentes méthodes selon le système
+	prev_unix=$(date -u -d "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "\$prev_timestamp" +%s 2>/dev/null || date -u -j -f "%Y-%m-%d %H:%M:%S" "\$(echo \$prev_timestamp | tr 'T' ' ' | tr -d 'Z')" +%s 2>/dev/null || echo "0")
+	# Timestamp actuel
+	now_unix=$(date +%s)
+	# Différence en secondes (24 heures = 86400 secondes)
+	diff_seconds=$((now_unix - prev_unix))
+	if [ $diff_seconds -lt 86400 ] && [ $diff_seconds -ge 0 ]; then
+		SKIP_EXTRACTION=true
+		hours_ago=$((diff_seconds / 3600))
+		echo "   ⏭️  Dernière mise à jour il y a \${hours_ago}h (\$prev_timestamp), extraction OSH et import en base ignorés"
+	fi
+fi
 
+# Définir HAS_CHANGESET_ID même si on skip l'extraction (utilisé plus tard)
+HAS_CHANGESET_ID=$(${PSQL} -qtAc "SELECT 1 FROM information_schema.columns WHERE table_name='pdm_changes' AND column_name='changeset_id'" 2>/dev/null | grep -q 1 && echo "1" || echo "0")
+
+# Toujours créer pdm_changes_tmp avant de l'utiliser (même si elle sera vide si on skip l'extraction)
+echo "   => Init changes table in database between \${cnt_timestamp} and \${cur_timestamp}"
+${PSQL} -c "DELETE FROM pdm_changes WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T00:00:00Z'"
+${PSQL} -c "DROP TABLE IF EXISTS pdm_changes_tmp"
+${PSQL} -c "CREATE TABLE pdm_changes_tmp (LIKE pdm_changes)"
+
+if [ "\$SKIP_EXTRACTION" = "false" ]; then
 echo "   => Extract changes from OSH file and import to database"
-# Use the global OSH file directly to extract changes for this project
-# This avoids creating project-specific OSH files
 rm -f "${CSV_CHANGES}"
-# Extract changes from the global OSH file using the project's tag filter
-# First, filter by tags, then by time range, then convert to OSC format
-TMP_FILTERED="${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered.osh.pbf"
 TMP_OSC="${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_changes.osc"
-rm -f "${TMP_FILTERED}" "${TMP_OSC}"
+rm -f "\${TMP_OSC}"
 
-# Apply tag filters sequentially
+# Convert OSH to OSC directly - use pipe for single filter, minimal intermediate files for multiple filters
+`;
+	if (tagFilterParts.length === 1) {
+		// Single filter - use pipe to avoid creating intermediate file
+		script += `
+# Single tag filter - use pipe to avoid creating intermediate file
+echo "   => Applying tag filter: ${tagFilterParts[0]}"
+echo "   => Converting OSH to OSC format (using pipe, no intermediate file)..."
+if osmium tags-filter "${OSH_UPDATED}" ${tagFilterParts[0]} -O -f osh.pbf 2>&1 | osmium export - -f osc -O -o "\${TMP_OSC}" 2>&1; then
+	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+	else
+		echo "   ⚠️  OSC file is empty or missing after conversion"
+		echo "   => Check osmium error messages above for details"
+		touch "${CSV_CHANGES}"
+	fi
+else
+	EXIT_CODE=$?
+	echo "   ❌ Failed to convert OSH to OSC format (exit code: \$EXIT_CODE)"
+	echo "   => Check osmium error messages above for details"
+	touch "${CSV_CHANGES}"
+fi
+`;
+	} else if (tagFilterParts.length > 1) {
+		// Multiple filters - apply sequentially, but clean up intermediate files immediately
+		script += `
+# Multiple tag filters - apply sequentially with minimal intermediate files
+echo "   => Applying ${tagFilterParts.length} tag filters sequentially"
 TMP_INPUT="${OSH_UPDATED}"
 `;
-	tagFilterParts.forEach((tagFilter, index) => {
-		const tmpOutput = index === tagFilterParts.length - 1 
-			? `"${TMP_FILTERED}"` 
-			: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
-		const nextInput = index === tagFilterParts.length - 1 
-			? `"${TMP_FILTERED}"` 
-			: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
-		
-		script += `
-if osmium tags-filter "${TMP_INPUT}" ${tagFilter} -O -o ${tmpOutput} 2>/dev/null; then
-	if [ -f ${tmpOutput} ] && [ -s ${tmpOutput} ]; then
+		tagFilterParts.forEach((tagFilter, index) => {
+			const isLast = index === tagFilterParts.length - 1;
+			const tmpFile = isLast 
+				? `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered_final.osh.pbf"`
+				: `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered_${index}.osh.pbf"`;
+			
+			script += `
+# Apply filter ${index + 1}/${tagFilterParts.length}
+if osmium tags-filter "\${TMP_INPUT}" ${tagFilter} -O -o ${tmpFile} 2>&1; then
+	if [ -f ${tmpFile} ] && [ -s ${tmpFile} ]; then
 		echo "   => Tag filter ${index + 1}/${tagFilterParts.length} applied successfully"
-		${index < tagFilterParts.length - 1 ? `TMP_INPUT=${nextInput}` : ''}
+		${index < tagFilterParts.length - 1 ? 'rm -f "${TMP_INPUT}"' : ''}
+		TMP_INPUT=${tmpFile}
 	else
 		echo "   ⚠️  Filtered file is empty after tag filter ${index + 1}"
-		rm -f ${tmpOutput}
+		rm -f ${tmpFile}
 		touch "${CSV_CHANGES}"
-		TMP_FILTERED=""
+		FILTER_FAILED=true
 	fi
 else
 	echo "   ⚠️  Failed to apply tag filter ${index + 1}"
-	rm -f ${tmpOutput}
+	rm -f ${tmpFile}
 	touch "${CSV_CHANGES}"
-	TMP_FILTERED=""
+	FILTER_FAILED=true
 fi
 `;
-	});
-
-	script += `
-# Extract changes in the time range and convert to OSC
-if [ -n "${TMP_FILTERED}" ] && [ -f "${TMP_FILTERED}" ] && [ -s "${TMP_FILTERED}" ]; then
-	if osmium time-filter "${TMP_FILTERED}" \${cnt_timestamp}T00:00:00Z \${cur_timestamp}T00:00:00Z -f osh.pbf -o - 2>/dev/null | osmium cat - -F osh.pbf -O -o "${TMP_OSC}" 2>/dev/null; then
-		if [ -f "${TMP_OSC}" ] && [ -s "${TMP_OSC}" ]; then
-			echo "   => Changes extracted successfully"
+		});
+		
+		script += `
+if [ "\${FILTER_FAILED:-false}" != "true" ]; then
+	# Convert filtered OSH to OSC
+	echo "   => Converting filtered OSH to OSC format..."
+	if osmium export "\${TMP_INPUT}" -f osc -O -o "\${TMP_OSC}" 2>&1; then
+		if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+			OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+			echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
 		else
-			echo "   ⚠️  OSC file is empty"
+			echo "   ⚠️  OSC file is empty or missing after conversion"
+			echo "   => Check osmium export error messages above for details"
 			touch "${CSV_CHANGES}"
 		fi
 	else
-		echo "   ⚠️  Failed to extract changes by time range"
+		EXIT_CODE=$?
+		echo "   ❌ Failed to export OSH to OSC format (exit code: \$EXIT_CODE)"
+		echo "   => Check osmium export error messages above for details"
 		touch "${CSV_CHANGES}"
 	fi
-	# Clean up temporary filtered file
-	rm -f "${TMP_FILTERED}"
-	${tagFilterParts.map((_, index) => {
-		if (index < tagFilterParts.length - 1) {
-			return `"${CONFIG.WORK_DIR}/tmp_${project.id.split("_").pop()}_filtered${index}.osh.pbf"`;
-		}
-		return null;
-	}).filter(f => f).map(f => `rm -f ${f}`).join('\n\t')}
+	# Clean up intermediate filtered file immediately
+	rm -f "\${TMP_INPUT}"
 else
-	echo "   ⚠️  No filtered file available, skipping change extraction"
+	echo "   ⚠️  Tag filtering failed, skipping OSC conversion"
+fi
+`;
+	} else {
+		// No filters - just export directly
+		script += `
+# No tag filters - convert OSH to OSC directly
+echo "   => Converting OSH to OSC format (no tag filters)..."
+if osmium export "${OSH_UPDATED}" -f osc -O -o "\${TMP_OSC}" 2>&1; then
+	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
+		OSC_SIZE=$(stat -c%s "\${TMP_OSC}" 2>/dev/null || stat -f%z "\${TMP_OSC}" 2>/dev/null || echo "0")
+		echo "   => Changes extracted successfully (OSC file size: \$OSC_SIZE bytes)"
+	else
+		echo "   ⚠️  OSC file is empty or missing after conversion"
+		echo "   => Check osmium export error messages above for details"
+		touch "${CSV_CHANGES}"
+	fi
+else
+	EXIT_CODE=$?
+	echo "   ❌ Failed to export OSH to OSC format (exit code: \$EXIT_CODE)"
+	echo "   => Check osmium export error messages above for details"
 	touch "${CSV_CHANGES}"
 fi
+`;
+	}
 
 # Convert OSC to CSV if OSC file exists
-if [ -f "${TMP_OSC}" ] && [ -s "${TMP_OSC}" ]; then
+if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 	# Extract osmid from type/id format (e.g., "node/123" -> "123") and add project column
 	# Use a more robust CSV parser that handles quoted fields
 	# Check if changeset_id column exists in pdm_changes to determine CSV format
 	HAS_CHANGESET_ID=$(${PSQL} -qtAc "SELECT 1 FROM information_schema.columns WHERE table_name='pdm_changes' AND column_name='changeset_id'" 2>/dev/null | grep -q 1 && echo "1" || echo "0")
 	# Use Python to properly parse CSV with quoted fields containing commas
 	if [ "$HAS_CHANGESET_ID" = "1" ]; then
-		xsltproc "${OSC2CSV}" "${OSC_USEFULL}" | python3 -c "
+		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 -c "
 import sys
 import csv
 import json
@@ -373,7 +496,7 @@ for row in reader:
 	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{changeset_id},{tags}')
 " > "${CSV_CHANGES}"
 	else
-		xsltproc "${OSC2CSV}" "${OSC_USEFULL}" | python3 -c "
+		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 -c "
 import sys
 import csv
 
@@ -403,18 +526,11 @@ for row in reader:
 	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{tags}')
 " > "${CSV_CHANGES}"
 	fi
-	rm -f "${TMP_OSC}"
+	rm -f "\${TMP_OSC}"
 else
 	echo "   ⚠️  OSC file is empty or missing, CSV will be empty"
 	touch "${CSV_CHANGES}"
 fi
-
-echo "   => Init changes table in database between \${cnt_timestamp} and \${cur_timestamp}"
-${PSQL} -c "DELETE FROM pdm_changes WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T00:00:00Z'"
-
-# Drop and recreate pdm_changes_tmp to ensure it has the same structure as pdm_changes
-${PSQL} -c "DROP TABLE IF EXISTS pdm_changes_tmp"
-${PSQL} -c "CREATE TABLE pdm_changes_tmp (LIKE pdm_changes)"
 
 # Use the same HAS_CHANGESET_ID variable from above to determine COPY columns
 if [ -f "${CSV_CHANGES}" ] && [ -s "${CSV_CHANGES}" ]; then
@@ -425,6 +541,12 @@ if [ -f "${CSV_CHANGES}" ] && [ -s "${CSV_CHANGES}" ]; then
 	fi
 else
 	echo "   ⚠️  CSV file is empty or missing, skipping import"
+fi
+else
+	echo "   ⏭️  Extraction OSH et import en base ignorés (mise à jour récente)"
+	touch "${CSV_CHANGES}"
+	# La table pdm_changes_tmp a déjà été créée avant le bloc conditionnel
+	# Elle sera vide, ce qui est normal si on skip l'extraction
 fi
 
 ${PSQL} -v project_id="'${project.id}'" -v project_table="pdm_project_${project.id.split("_").pop()}" -f "${__dirname}/33_changes_populate.sql"
@@ -455,9 +577,17 @@ echo "== Statistics for project ${project.id}"`;
 	if (project.statistics.count){
 		script += `
 echo "   => Count features"
-${PSQL} -c "DELETE FROM pdm_feature_counts WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T00:00:00Z'"
-if ${HAS_BOUNDARY}; then
-	${PSQL} -c "DELETE FROM pdm_feature_counts_per_boundary WHERE project='${project.id}' AND ts BETWEEN '\${cnt_timestamp}T00:00:00Z' AND '\${cur_timestamp}T00:00:00Z'"
+if [ "$FORCE_RECALCULATE" = "true" ]; then
+	echo "   => Mode: Recalcul complet (toutes les dates depuis le début du projet seront recalculées)"
+	# Supprimer toutes les mesures depuis le début du projet jusqu'à aujourd'hui
+	${PSQL} -c "DELETE FROM pdm_feature_counts WHERE project='${project.id}' AND ts BETWEEN '\${prj_timestamp}T00:00:00Z' AND '\${cur_timestamp}T23:59:59Z'"
+	if ${HAS_BOUNDARY}; then
+		${PSQL} -c "DELETE FROM pdm_feature_counts_per_boundary WHERE project='${project.id}' AND ts BETWEEN '\${prj_timestamp}T00:00:00Z' AND '\${cur_timestamp}T23:59:59Z'"
+	fi
+	# Utiliser start_date du projet comme point de départ pour le recalcul
+	cnt_timestamp=$prj_timestamp
+else
+	echo "   => Mode: Calcul uniquement des dates manquantes"
 fi
 
 echo "Counting from \$cnt_timestamp to \${cur_timestamp}"
@@ -466,6 +596,15 @@ days=($\{days##*( )\})
 for day in "\${days[@]}"; do
 	if [[ $(date -Idate --utc -d \${cnt_timestamp}T23:59:59Z) > $(date -Idate --utc -d \${day}T00:00:00Z) ]]; then
 		continue
+	fi
+	
+	# Vérifier si une mesure existe déjà pour cette date (sauf si on force le recalcul)
+	if [ "$FORCE_RECALCULATE" != "true" ]; then
+		EXISTING_COUNT=$(${PSQL} -qtAc "SELECT COUNT(*) FROM pdm_feature_counts WHERE project='${project.id}' AND ts='\${day}T23:59:59Z'" 2>/dev/null | tr -d ' ' || echo "0")
+		if [ "$EXISTING_COUNT" != "0" ] && [ -n "$EXISTING_COUNT" ]; then
+			echo "   ⏭️  Mesure déjà existante pour \${day}, ignorée (utilisez --force-recalculate pour forcer le recalcul)"
+			continue
+		fi
 	fi
 	
 	echo "Processing \${day}"
@@ -515,6 +654,7 @@ for day in "\${days[@]}"; do
 		fi
 	fi
 
+	# Insérer ou mettre à jour la mesure (ON CONFLICT permet de mettre à jour si on force le recalcul)
 	${PSQL} -c "INSERT INTO pdm_feature_counts (project,ts,amount) VALUES ('${project.id}', '\${day}T23:59:59Z', \${nbday}) ON CONFLICT (project,ts) DO UPDATE SET amount=EXCLUDED.amount"
 	if ${HAS_BOUNDARY}; then
 		if ${PSQL} -c "SELECT * FROM pdm_boundary_subdivide LIMIT 1" > /dev/null 2>&1; then

@@ -31,6 +31,7 @@ CREATE TABLE pdm_changes(
 	userid BIGINT,
 	tags JSONB,
 	contrib VARCHAR DEFAULT NULL,
+	changeset_id BIGINT,
 
 	CONSTRAINT pdm_changes_pk PRIMARY KEY(project,osmid,version)
 );

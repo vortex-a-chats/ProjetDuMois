@@ -15,7 +15,7 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "n/amenity=bench",
+    "osmium_tag_filter": "amenity=bench",
     "imposm": {
       "types": ["point"],
       "mapping": {

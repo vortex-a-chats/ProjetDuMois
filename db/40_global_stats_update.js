@@ -89,31 +89,73 @@ NOTES_DUMP_FILE="$TMP_NOTES_DIR/planet-notes-latest.osn.bz2"
 NOTES_DUMP_XML="$TMP_NOTES_DIR/planet-notes-latest.osn"
 NOTES_FRANCE_XML="$TMP_NOTES_DIR/notes-france-\${CURRENT_DATE}.osn"
 
-# Télécharger le dump de notes (seulement si absent, vide, ou plus vieux que 24h)
+# Télécharger le dump de notes (seulement si absent, vide, trop petit, ou plus vieux que 24h)
 # #region agent log
 SHOULD_DOWNLOAD=false
+MIN_SIZE=314572800  # 300 Mo en bytes
+
 if [ ! -f "$NOTES_DUMP_FILE" ] || [ ! -s "$NOTES_DUMP_FILE" ]; then
 	SHOULD_DOWNLOAD=true
 	echo "   => Notes dump file missing or empty, will download"
 else
-	# Vérifier l'âge du fichier (24 heures = 86400 secondes)
-	FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_FILE" 2>/dev/null || echo 0)))
-	if [ $FILE_AGE -gt 86400 ]; then
+	# Vérifier la taille du fichier (doit faire au moins 300 Mo)
+	FILE_SIZE=$(stat -c%s "$NOTES_DUMP_FILE" 2>/dev/null || stat -f%z "$NOTES_DUMP_FILE" 2>/dev/null || echo "0")
+	FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+	
+	if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
 		SHOULD_DOWNLOAD=true
-		FILE_AGE_HOURS=$((FILE_AGE / 3600))
-		echo "   => Notes dump file is $FILE_AGE_HOURS hours old (older than 24h), will download"
+		echo "   => Notes dump file is too small: ${FILE_SIZE_MB} MB (expected at least 300 MB), will re-download"
 	else
-		FILE_AGE_HOURS=$((FILE_AGE / 3600))
-		echo "   => Using existing notes dump file (age: $FILE_AGE_HOURS hours, less than 24h)"
+		# Vérifier l'âge du fichier (24 heures = 86400 secondes)
+		FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_FILE" 2>/dev/null || echo 0)))
+		if [ $FILE_AGE -gt 86400 ]; then
+			SHOULD_DOWNLOAD=true
+			FILE_AGE_HOURS=$((FILE_AGE / 3600))
+			echo "   => Notes dump file is $FILE_AGE_HOURS hours old (older than 24h), will download"
+		else
+			FILE_AGE_HOURS=$((FILE_AGE / 3600))
+			echo "   => Using existing notes dump file (size: ${FILE_SIZE_MB} MB, age: $FILE_AGE_HOURS hours, less than 24h)"
+		fi
 	fi
 fi
 # #endregion agent log
 
 if [ "$SHOULD_DOWNLOAD" = "true" ]; then
 	echo "   => Downloading notes dump (this may take a while)..."
+	# Supprimer le fichier existant s'il est trop petit
+	if [ -f "$NOTES_DUMP_FILE" ]; then
+		rm -f "$NOTES_DUMP_FILE"
+	fi
 	if ! wget -N -P "$TMP_NOTES_DIR" "$NOTES_DUMP_URL" 2>&1; then
 		echo "   ⚠️  Error downloading notes dump"
 		exit 1
+	fi
+	
+	# Vérifier que le fichier téléchargé fait au moins 300 Mo
+	# Si le fichier est trop petit, il est probablement corrompu ou incomplet
+	FILE_SIZE=$(stat -c%s "$NOTES_DUMP_FILE" 2>/dev/null || stat -f%z "$NOTES_DUMP_FILE" 2>/dev/null || echo "0")
+	FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+	
+	if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
+		echo "   ⚠️  Notes dump file is too small after download: ${FILE_SIZE_MB} MB (expected at least 300 MB)"
+		echo "   => File may be corrupted or incomplete, removing and re-downloading..."
+		rm -f "$NOTES_DUMP_FILE"
+		echo "   => Re-downloading notes dump from planet.openstreetmap.org..."
+		if ! wget -N -P "$TMP_NOTES_DIR" "$NOTES_DUMP_URL" 2>&1; then
+			echo "   ⚠️  Error re-downloading notes dump"
+			exit 1
+		fi
+		# Vérifier à nouveau la taille après le re-téléchargement
+		FILE_SIZE=$(stat -c%s "$NOTES_DUMP_FILE" 2>/dev/null || stat -f%z "$NOTES_DUMP_FILE" 2>/dev/null || echo "0")
+		FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+		if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
+			echo "   ❌ Notes dump file is still too small after re-download: ${FILE_SIZE_MB} MB"
+			echo "   ❌ The file on planet.openstreetmap.org may be corrupted or the download failed"
+			exit 1
+		fi
+		echo "   ✓ Notes dump file size OK after re-download: ${FILE_SIZE_MB} MB"
+	else
+		echo "   ✓ Notes dump file size OK: ${FILE_SIZE_MB} MB"
 	fi
 fi
 
@@ -121,6 +163,8 @@ fi
 # #region agent log
 SHOULD_DECOMPRESS=false
 LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
 if [ ! -f "$NOTES_DUMP_XML" ]; then
 	SHOULD_DECOMPRESS=true
 	echo "   => Decompressing notes dump (file missing)..."
@@ -393,6 +437,10 @@ async function processNotes() {
 		
 		// #region agent log
 		const LOG_FILE = '/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log';
+		const logDir = require('path').dirname(LOG_FILE);
+		if (!fs.existsSync(logDir)) {
+			fs.mkdirSync(logDir, { recursive: true });
+		}
 		const dateKeys = Array.from(notesByDate.keys()).sort();
 		fs.appendFileSync(LOG_FILE, JSON.stringify({location:'40_global_stats_update.js:363',message:'before inserting dates',data:{totalDates:notesByDate.size,firstDate:dateKeys[0],lastDate:dateKeys[dateKeys.length-1],sampleDates:dateKeys.slice(0,10)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'}) + '\\n');
 		// #endregion agent log
@@ -539,6 +587,8 @@ NODEJS
 # Ne supprimer le fichier décompressé que s'il a plus de 24h pour éviter de le recréer à chaque exécution
 # #region agent log
 LOG_FILE="/home/poule/encrypted/stockage-syncable/www/development/html/ProjetDuMois/.cursor/debug.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
 if [ -f "$NOTES_DUMP_XML" ]; then
 	XML_FILE_AGE=$(($(date +%s) - $(stat -c %Y "$NOTES_DUMP_XML" 2>/dev/null || echo 0)))
 	if [ $XML_FILE_AGE -gt 86400 ]; then
