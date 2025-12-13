@@ -4,6 +4,8 @@ services:
     restart: always
     networks:
       - oim-internal
+    # Port PostgreSQL sur l'hôte (par défaut: 5433 pour éviter les conflits)
+    # Pour changer le port, créez un fichier .env avec: POSTGRES_PORT=5434
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
