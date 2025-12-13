@@ -576,6 +576,8 @@ Ensuite, lancement de docker, que vous pouvez installer via snap sur ubuntu.
 # initialisation et récupération des données depuis geofabrik
 # construire l'image pdm depuis les sources avant de lancer les images.
 git clone https://github.com/vortex-a-chats/ProjetDuMois
+git submodule init
+git submodule update
 docker build -t pdm/server:latest .
 docker-compose up -d
 docker-compose exec pdm ./docker-entrypoint.sh init

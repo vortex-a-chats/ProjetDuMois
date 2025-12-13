@@ -374,23 +374,29 @@ script.
 			if(res.avgPerContributor != null) { addBlock(res.avgPerContributor.toFixed(1), "#{__("Objets ajoutés / personne (moy.)")} 🧑‍💻"); }
 			if(res.remaining != null) { addBlock(numberFormat.format(res.remaining), "#{__("Objets restants (estim.)")} ⏳"); }
 			if(res.remainingPerContributor != null) { addBlock(numberFormat.format(res.remainingPerContributor), "#{__("Restant / personne (estim.)")} 🙋"); }
-			if(res.etaDays != null) {
-				const etaDays = Math.ceil(res.etaDays);
-				let etaText = "";
-				if(etaDays < 30) {
-					etaText = etaDays + " jours";
+			// Display ETA if there are remaining objects
+			if(res.remaining != null && res.remaining > 0 && res.etaDays != null) {
+				if(res.etaDays === Infinity || !isFinite(res.etaDays)) {
+					// No changes in 6 months = infinite time
+					addBlock("#{__("Indéterminé")}", "#{__("Temps estimé pour compléter les objets restants")} ⏱️");
 				} else {
-					const years = Math.floor(etaDays / 365);
-					const months = Math.floor((etaDays % 365) / 30);
-					if(years > 0 && months > 0) {
-						etaText = years + " an" + (years > 1 ? "s" : "") + " et " + months + " mois";
-					} else if(years > 0) {
-						etaText = years + " an" + (years > 1 ? "s" : "");
+					const etaDays = Math.ceil(res.etaDays);
+					let etaText = "";
+					if(etaDays < 30) {
+						etaText = etaDays + " jours";
 					} else {
-						etaText = months + " mois";
+						const years = Math.floor(etaDays / 365);
+						const months = Math.floor((etaDays % 365) / 30);
+						if(years > 0 && months > 0) {
+							etaText = years + " an" + (years > 1 ? "s" : "") + " et " + months + " mois";
+						} else if(years > 0) {
+							etaText = years + " an" + (years > 1 ? "s" : "");
+						} else {
+							etaText = months + " mois";
+						}
 					}
+					addBlock("~" + etaText, "#{__("Temps estimé pour compléter les objets restants (au rythme des 6 derniers mois)")} ⏱️");
 				}
-				addBlock("~" + etaText, "#{__("Jours restants au rythme actuel (estim.)")} 🕒");
 			}
 			if(res.avgPerCommune != null) { addBlock(numberFormat.format(res.avgPerCommune.toFixed(1)), "#{__("Objets intégrés / commune (estim.)")} 🏘️"); }
 			if(res.contributorsPerCommune != null) { addBlock(res.contributorsPerCommune.toFixed(2), "#{__("Contributeurs / commune (estim.)")} 🤝"); }

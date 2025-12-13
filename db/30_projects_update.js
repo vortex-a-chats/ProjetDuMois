@@ -669,13 +669,13 @@ for row in reader:
 	typeid = row[1]
 	version = row[2]
 	timestamp = row[3]
-	username = row[4].strip('\"')
+	username = row[4].strip('\\"')
 	uid = row[5]
 	changeset_id = row[6] if row[6] and row[6] != 'null' else ''
 	# Tags is everything from field 7 onwards, join with commas
 	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
 	# Remove outer quotes and fix escaped quotes
-	tags = tags.strip('\"').replace('\"\"', '\"')
+	tags = tags.strip('\\"').replace('\\"\\"', '\\"')
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:
@@ -700,12 +700,12 @@ for row in reader:
 	typeid = row[1]
 	version = row[2]
 	timestamp = row[3]
-	username = row[4].strip('\"')
+	username = row[4].strip('\\"')
 	uid = row[5]
 	# Tags is everything from field 7 onwards, join with commas
 	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
 	# Remove outer quotes and fix escaped quotes
-	tags = tags.strip('\"').replace('\"\"', '\"')
+	tags = tags.strip('\\"').replace('\\"\\"', '\\"')
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:

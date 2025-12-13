@@ -738,14 +738,23 @@ app.get("/projects/all/stats", (req, res) => {
                     ? Math.max(0, totalToIntegrate - currentAmountFromChart)
                     : null;
 
-                // Calculate ETA based on last 180 days average
-                let etaDays = null;
-                if (remaining != null && remaining > 0 && last180Days > 0) {
-                  const avgPerDay = last180Days / 180;
-                  if (avgPerDay > 0) {
-                    etaDays = remaining / avgPerDay;
-                  }
-                }
+          // Calculate ETA based on last 180 days (6 months) average
+          // If remaining > 0, calculate ETA; if no changes in 6 months, ETA is infinite
+          let etaDays = null;
+          if (remaining != null && remaining > 0) {
+            if (last180Days != null && last180Days > 0) {
+              const avgPerDay = last180Days / 180;
+              if (avgPerDay > 0) {
+                etaDays = remaining / avgPerDay;
+              } else {
+                // No changes in 6 months = infinite time
+                etaDays = Infinity;
+              }
+            } else {
+              // No data for 180 days or zero changes = infinite time
+              etaDays = Infinity;
+            }
+          }
 
                 return {
                   id: proj.id,
@@ -1522,23 +1531,21 @@ app.get("/projects/:id/stats", (req, res) => {
     if (toSend.remaining != null && contributors > 0) {
       toSend.remainingPerContributor = toSend.remaining / contributors;
     }
-    // Choose a daily rate from available windows
-    // Priority: 6 months (180 days) > 30 days > 7 days > 365 days
-    const dailyRate =
-      (toSend.added180d != null && toSend.added180d > 0
-        ? toSend.added180d / 180
-        : null) ||
-      (toSend.added30d != null && toSend.added30d > 0
-        ? toSend.added30d / 30
-        : null) ||
-      (toSend.addedWeek != null && toSend.addedWeek > 0
-        ? toSend.addedWeek / 7
-        : null) ||
-      (toSend.added365d != null && toSend.added365d > 0
-        ? toSend.added365d / 365
-        : null);
-    if (toSend.remaining != null && dailyRate) {
-      toSend.etaDays = toSend.remaining / dailyRate;
+    // Calculate ETA based on last 180 days (6 months) average only
+    // If remaining > 0, calculate ETA; if no changes in 6 months, ETA is infinite
+    if (toSend.remaining != null && toSend.remaining > 0) {
+      if (toSend.added180d != null && toSend.added180d > 0) {
+        const dailyRate = toSend.added180d / 180;
+        if (dailyRate > 0) {
+          toSend.etaDays = toSend.remaining / dailyRate;
+        } else {
+          // No changes in 6 months = infinite time
+          toSend.etaDays = Infinity;
+        }
+      } else {
+        // No data for 180 days or zero changes = infinite time
+        toSend.etaDays = Infinity;
+      }
     }
 
     // Estimations par commune (base 34 874 communes INSEE)
