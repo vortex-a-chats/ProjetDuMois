@@ -70,9 +70,10 @@ const postUpdateSQL = [];
 
 if(IMPOSM_ENABLED) {
 	preSQL.push(`DROP MATERIALIZED VIEW IF EXISTS pdm_boundary CASCADE`);
-	postSQL.push(`CREATE MATERIALIZED VIEW pdm_boundary AS SELECT *, ST_Centroid(geom)::GEOMETRY(Point, 3857) AS centre FROM pdm_boundary_osm`);
-	postSQL.push(`CREATE INDEX pdm_boundary_osm_id_idx ON pdm_boundary(osm_id);`);
-	postUpdateSQL.push(`REFRESH MATERIALIZED VIEW pdm_boundary`);
+	// Vérifier que la table pdm_boundary_osm existe avant de créer la vue
+	postSQL.push(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pdm_boundary_osm') THEN CREATE MATERIALIZED VIEW IF NOT EXISTS pdm_boundary AS SELECT *, ST_Centroid(geom)::GEOMETRY(Point, 3857) AS centre FROM pdm_boundary_osm; CREATE INDEX IF NOT EXISTS pdm_boundary_osm_id_idx ON pdm_boundary(osm_id); END IF; END $$;`);
+	// Vérifier que la vue existe avant de la rafraîchir
+	postUpdateSQL.push(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_matviews WHERE schemaname = 'public' AND matviewname = 'pdm_boundary') THEN REFRESH MATERIALIZED VIEW pdm_boundary; END IF; END $$;`);
 }
 
 projectsToProcess.forEach(e => {

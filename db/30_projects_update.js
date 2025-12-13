@@ -269,14 +269,45 @@ set -e
 
 mode="$1"
 echo "== Prerequisites"
-nbProjects=$(${PSQL} -tAc "select count(*) from pdm_projects" | sed 's/[^0-9]*//g' )
-nbPoints=$(${PSQL} -tAc "select count(*) from pdm_projects_points" | sed 's/[^0-9]*//g' )
 
-if [[ $nbProjects < 1 ]]; then
-  echo "WARN: No known projects in SQL projects table"
+# Vérifier si les tables existent avant de les interroger
+TABLES_EXIST=true
+if ! ${PSQL} -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pdm_projects')" 2>/dev/null | grep -q "t"; then
+	TABLES_EXIST=false
+	echo "⚠️  Table pdm_projects n'existe pas"
 fi
-if [[ $nbPoints < 1 ]]; then
-  echo "WARN: No declared points for projects contributions"
+if ! ${PSQL} -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pdm_projects_points')" 2>/dev/null | grep -q "t"; then
+	TABLES_EXIST=false
+	echo "⚠️  Table pdm_projects_points n'existe pas"
+fi
+
+if [ "$TABLES_EXIST" = "false" ]; then
+	echo ""
+	echo "❌ ERROR: Les tables de base de données n'existent pas."
+	echo "   Vous devez d'abord exécuter le script d'initialisation de la base de données :"
+	echo "   docker-compose exec pdm ./docker-entrypoint.sh install"
+	echo ""
+	echo "   Ou exécuter manuellement :"
+	echo "   psql -d \$DB_URL -f db/00_init.sql"
+	echo ""
+	echo "   Le script continuera mais certaines fonctionnalités ne fonctionneront pas."
+	echo ""
+fi
+
+# Compter les projets et points seulement si les tables existent
+if [ "$TABLES_EXIST" = "true" ]; then
+	nbProjects=$(${PSQL} -tAc "select count(*) from pdm_projects" 2>/dev/null | sed 's/[^0-9]*//g' || echo "0")
+	nbPoints=$(${PSQL} -tAc "select count(*) from pdm_projects_points" 2>/dev/null | sed 's/[^0-9]*//g' || echo "0")
+	
+	if [[ $nbProjects < 1 ]]; then
+		echo "WARN: No known projects in SQL projects table"
+	fi
+	if [[ $nbPoints < 1 ]]; then
+		echo "WARN: No declared points for projects contributions"
+	fi
+else
+	nbProjects=0
+	nbPoints=0
 fi
 if [ -f ${CONFIG.WORK_DIR}/osh_timestamp ]; then
         osh_timestamp=$(cat ${CONFIG.WORK_DIR}/osh_timestamp)
@@ -435,7 +466,13 @@ projectsToProcess.forEach(project => {
 echo "== Begin process for project ${project.id}"
 FORCE_RECALCULATE="${forceRecalculate ? 'true' : 'false'}"
 FORCE_EXTRACT="${forceExtract ? 'true' : 'false'}"
-prev_timestamp=$(${PSQL} -qtAc "SELECT to_char (lastupdate_date at time zone 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS\\"Z\\"') from pdm_projects where project='${project.id}'")
+
+# Récupérer le timestamp de dernière mise à jour seulement si la table existe
+prev_timestamp=""
+if ${PSQL} -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pdm_projects')" 2>/dev/null | grep -q "t"; then
+	prev_timestamp=$(${PSQL} -qtAc "SELECT to_char (lastupdate_date at time zone 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS\\"Z\\"') from pdm_projects where project='${project.id}'" 2>/dev/null || echo "")
+fi
+
 if [ -n "\$prev_timestamp" ]; then
 	echo "Starting from project last update: $prev_timestamp"
 else
