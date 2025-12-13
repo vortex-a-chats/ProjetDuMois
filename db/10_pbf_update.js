@@ -173,8 +173,10 @@ if [[ "$mode" != "fast" ]]; then
 	# Check if the OSH file is for a specific region (like Réunion) or for the whole country
 	# If the URL contains a region name (not just "france"), skip polygon extraction
 	OSH_URL="${CONFIG.OSH_PBF_URL}"
-	if echo "$OSH_URL" | grep -q "reunion\|guadeloupe\|martinique\|guyane\|mayotte"; then
-		echo "   => Regional OSH file detected, skipping polygon extraction (file is already region-specific)"
+	OSH_FILENAME=$(basename "${OSH_URL}" .osh.pbf)
+	# Check if filename contains region name (case-insensitive)
+	if echo "$OSH_FILENAME" | grep -qiE "reunion|guadeloupe|martinique|guyane|mayotte"; then
+		echo "   => Regional OSH file detected (${OSH_FILENAME}), skipping polygon extraction (file is already region-specific)"
 		cp "${OSH_UPDATED_NEW}" "${OSH_UPDATED}"
 	else
 		# For France métropolitaine, extract with polygon
@@ -186,7 +188,9 @@ if [[ "$mode" != "fast" ]]; then
 				exit 1
 			fi
 		fi
-		osmium extract -p "${OSH_POLY}" --with-history -s complete_ways "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
+		# Use simple strategy instead of complete_ways to reduce memory usage
+		# For OSH files with history, simple strategy is sufficient for polygon extraction
+		osmium extract -p "${OSH_POLY}" --with-history -s simple "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
 	fi
 	echo "== Remove temp files"
 	rm -f "${OSC_UPDATES}"

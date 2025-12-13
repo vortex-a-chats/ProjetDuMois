@@ -210,7 +210,12 @@ if [ ! -f "${OSM_PBF_LATEST}" ]; then
 		echo "   ❌ ERROR: Neither OSM PBF nor OSH file found."
 		echo "   OSM PBF expected at: ${OSM_PBF_LATEST}"
 		echo "   OSH file expected at: ${OSH_FILE}"
-		echo "   Please run 'update_pbf' first."
+		echo ""
+		echo "   📋 Solution: You need to download the OSH file first."
+		echo "   Run the following command to download and prepare the OSH file:"
+		echo "   docker-compose exec pdm ./docker-entrypoint.sh update_pbf"
+		echo ""
+		echo "   This will download the OSH PBF file from: ${CONFIG.OSH_PBF_URL}"
 		exit 1
 	fi
 fi
