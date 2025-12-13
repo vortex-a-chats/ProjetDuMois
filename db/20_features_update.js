@@ -236,7 +236,7 @@ if [ "$SKIP_UPDATE" = "false" ]; then
 	osmium apply-changes "${OSM_PBF_LATEST}" \\
 		"${OSC_FULL}" \\
 		-O -o "${OSM_PBF_LATEST_UNSTABLE}"
-	osmium extract -p "${OSM_POLY}" -s smart -S types=boundary,multipolygon "${OSM_PBF_LATEST_UNSTABLE}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
+	osmium extract -p "${OSM_POLY}" -s simple -S types=boundary,multipolygon "${OSM_PBF_LATEST_UNSTABLE}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
 	rm -f "${OSM_PBF_LATEST_UNSTABLE}" "${OSC_FULL}"
 	# Update timestamp after successful update (use current time minus 3 hours to account for replication delay)
 	curtime=$(date -d '3 hours ago' -Iseconds --utc 2>/dev/null || date -u -Iseconds)
@@ -248,7 +248,7 @@ else
 	if [ ! -f "${OSM_PBF_LATEST_UNSTABLE_FILTERED}" ]; then
 		# If filtered file doesn't exist, we need to create it from the latest file
 		if [ -f "${OSM_PBF_LATEST}" ]; then
-			osmium extract -p "${OSM_POLY}" -s smart -S types=boundary,multipolygon "${OSM_PBF_LATEST}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
+			osmium extract -p "${OSM_POLY}" -s simple -S types=boundary,multipolygon "${OSM_PBF_LATEST}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
 		else
 			echo "   ⚠️  Warning: ${OSM_PBF_LATEST} not found, cannot skip update"
 			SKIP_UPDATE=false
@@ -266,7 +266,7 @@ else
 			osmium apply-changes "${OSM_PBF_LATEST}" \\
 				"${OSC_FULL}" \\
 				-O -o "${OSM_PBF_LATEST_UNSTABLE}"
-			osmium extract -p "${OSM_POLY}" -s smart -S types=boundary,multipolygon "${OSM_PBF_LATEST_UNSTABLE}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
+			osmium extract -p "${OSM_POLY}" -s simple -S types=boundary,multipolygon "${OSM_PBF_LATEST_UNSTABLE}" -O -o "${OSM_PBF_LATEST_UNSTABLE_FILTERED}"
 			rm -f "${OSM_PBF_LATEST_UNSTABLE}" "${OSC_FULL}"
 			# Update timestamp after successful update (use current time minus 3 hours to account for replication delay)
 			curtime=$(date -d '3 hours ago' -Iseconds --utc 2>/dev/null || date -u -Iseconds)
