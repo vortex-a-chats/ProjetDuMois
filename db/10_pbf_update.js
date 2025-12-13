@@ -6,6 +6,7 @@ const fs = require('fs');
  * in order to update pbf, osh raw files for downstream processing
  */
 
+const OSH_FILENAME = CONFIG.OSH_PBF_URL.split("/").pop().replace(".osh.pbf", "");
 const OSH_POLY = CONFIG.WORK_DIR + '/' + CONFIG.OSH_PBF_URL.split("/").pop().replace("-internal.osh.pbf", ".poly");
 const OSH_UPDATED = CONFIG.WORK_DIR + '/' + CONFIG.OSH_PBF_URL.split("/").pop().replace(".osh.pbf", ".latest.osh.pbf");
 const OSH_UPDATED_NEW = CONFIG.WORK_DIR + '/' + CONFIG.OSH_PBF_URL.split("/").pop().replace(".osh.pbf", ".latest.new.osh.pbf");
@@ -171,11 +172,9 @@ if [[ "$mode" != "fast" ]]; then
 	fi
 	echo "== Extract polygon data..."
 	# Check if the OSH file is for a specific region (like Réunion) or for the whole country
-	# If the URL contains a region name (not just "france"), skip polygon extraction
-	OSH_URL="${CONFIG.OSH_PBF_URL}"
-	OSH_FILENAME=$(basename "${OSH_URL}" .osh.pbf)
+	# If the filename contains a region name (not just "france"), skip polygon extraction
 	# Check if filename contains region name (case-insensitive)
-	if echo "$OSH_FILENAME" | grep -qiE "reunion|guadeloupe|martinique|guyane|mayotte"; then
+	if echo "${OSH_FILENAME}" | grep -qiE "reunion|guadeloupe|martinique|guyane|mayotte"; then
 		echo "   => Regional OSH file detected (${OSH_FILENAME}), skipping polygon extraction (file is already region-specific)"
 		cp "${OSH_UPDATED_NEW}" "${OSH_UPDATED}"
 	else
