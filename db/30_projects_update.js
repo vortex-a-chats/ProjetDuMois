@@ -60,13 +60,36 @@ const CSV_NOTES = (project) => `${CONFIG.WORK_DIR}/notes_${project}.csv`;
 const CSV_NOTES_CONTRIBS = (project) => `${CONFIG.WORK_DIR}/user_notes_${project}.csv`;
 const CSV_NOTES_USERS = (project) => `${CONFIG.WORK_DIR}/usernames_notes_${project}.csv`;
 
-const PSQL = `psql -d ${process.env.DB_URL}`;
-const OUTPUT_SCRIPT = CONFIG.WORK_DIR + '/31_projects_update_tmp.sh';
-const HAS_BOUNDARY = `${PSQL} -c "SELECT * FROM pdm_boundary LIMIT 1" > /dev/null 2>&1 `;
+// Vérifier si DB_URL est défini
+const DB_URL = process.env.DB_URL;
+if (!DB_URL) {
+	console.warn('⚠️  DB_URL n\'est pas défini. La connexion à la base de données sera ignorée.');
+	console.warn('   Les scripts bash seront générés mais l\'installation des projets dans la DB sera ignorée.');
+}
 
-const pgPool = new Pool({
-	connectionString: `${process.env.DB_URL}`
-});
+const PSQL = DB_URL ? `psql -d ${DB_URL}` : 'echo "DB_URL not set"';
+const OUTPUT_SCRIPT = CONFIG.WORK_DIR + '/31_projects_update_tmp.sh';
+const HAS_BOUNDARY = DB_URL ? `${PSQL} -c "SELECT * FROM pdm_boundary LIMIT 1" > /dev/null 2>&1 ` : 'false';
+
+// Créer le pool seulement si DB_URL est défini
+let pgPool = null;
+if (DB_URL) {
+	try {
+		pgPool = new Pool({
+			connectionString: DB_URL
+		});
+		// Tester la connexion avec un timeout
+		pgPool.on('error', (err) => {
+			console.warn(`⚠️  Erreur de connexion à la base de données: ${err.message}`);
+			console.warn('   Les scripts bash seront générés mais l\'installation des projets dans la DB sera ignorée.');
+			pgPool = null;
+		});
+	} catch (err) {
+		console.warn(`⚠️  Impossible de créer le pool de connexion: ${err.message}`);
+		console.warn('   Les scripts bash seront générés mais l\'installation des projets dans la DB sera ignorée.');
+		pgPool = null;
+	}
+}
 
 // Notes statistics
 function processNotes(project) {
@@ -82,15 +105,38 @@ function processNotes(project) {
 		// Review each note source
 		const promises = notesSources.map((noteSource, nsid) => {
 			// Call OSM API for each term
-			const subpromises = noteSource.terms.map(term => (
-				fetch(`${CONFIG.OSM_URL}/api/0.6/notes/search.json?q=${encodeURIComponent(term)}&limit=10000&closed=-1&from=${project.start_date}`)
-				.then(res => res.json())
-			));
+			const subpromises = noteSource.terms.map(term => {
+				const url = `${CONFIG.OSM_URL}/api/0.6/notes/search.json?q=${encodeURIComponent(term)}&limit=10000&closed=-1&from=${project.start_date}`;
+				return fetch(url)
+					.then(res => {
+						if (!res.ok) {
+							console.warn(`⚠️  Erreur HTTP ${res.status} lors de la récupération des notes pour le terme "${term}"`);
+							return { features: [] };
+						}
+						const contentType = res.headers.get('content-type');
+						if (!contentType || !contentType.includes('application/json')) {
+							console.warn(`⚠️  Réponse non-JSON pour le terme "${term}" (Content-Type: ${contentType})`);
+							console.warn(`   L'API OSM peut être en maintenance ou retourner une erreur`);
+							return { features: [] };
+						}
+						return res.json().catch(err => {
+							console.warn(`⚠️  Erreur lors du parsing JSON pour le terme "${term}": ${err.message}`);
+							return { features: [] };
+						});
+					})
+					.catch(err => {
+						console.warn(`⚠️  Erreur lors de la récupération des notes pour le terme "${term}": ${err.message}`);
+						return { features: [] };
+					});
+			});
 
 			// Process received notes
 			const countedNotes = [];
 			return Promise.all(subpromises).then(results => {
 				results.forEach(result => {
+					if (!result || !result.features || !Array.isArray(result.features)) {
+						return;
+					}
 					result.features.forEach(f => {
 						if(!countedNotes.includes(f.properties.id)) {
 							countedNotes.push(f.properties.id);
@@ -179,22 +225,32 @@ projectsToProcess.forEach(project => {
 });
 
 projectsQry = `${projectsQry.substring(0, projectsQry.length-1)} ON CONFLICT (project) DO UPDATE SET start_date=EXCLUDED.start_date, end_date=EXCLUDED.end_date`;
-pgPool.query(projectsQry, (err, res) => {
-	if (err){
-		throw new Error(`Erreur installation projets: ${err}`);
-	}
-	console.log(projectLength+" project(s) installed");
-});
+if (pgPool) {
+	pgPool.query(projectsQry, (err, res) => {
+		if (err){
+			console.warn(`⚠️  Erreur installation projets dans la DB: ${err.message}`);
+			console.warn('   Les scripts bash seront générés mais l\'installation des projets dans la DB a échoué.');
+		} else {
+			console.log(projectLength+" project(s) installed");
+		}
+	});
+} else {
+	console.log(`⚠️  ${projectLength} project(s) à installer (connexion DB non disponible, installation ignorée)`);
+}
 
 // Ne construire et exécuter la requête que s'il y a des points à insérer
-if (projectPointsLength > 0) {
+if (projectPointsLength > 0 && pgPool) {
 	projectPointsQry = `${projectPointsQry.substring(0, projectPointsQry.length-1)} ON CONFLICT (project, contrib) DO UPDATE SET points=EXCLUDED.points`;
 	pgPool.query(projectPointsQry, (err, res) => {
 		if (err){
-			throw new Error(`Erreur installation points projet: ${err}`);
+			console.warn(`⚠️  Erreur installation points projet dans la DB: ${err.message}`);
+			console.warn('   Les scripts bash seront générés mais l\'installation des points dans la DB a échoué.');
+		} else {
+			console.log(projectPointsLength+" project(s) point(s) installed");
 		}
-		console.log(projectPointsLength+" project(s) point(s) installed");
 	});
+} else if (projectPointsLength > 0) {
+	console.log(`⚠️  ${projectPointsLength} project(s) point(s) à installer (connexion DB non disponible, installation ignorée)`);
 } else {
 	console.log("No project points to install");
 }
@@ -731,13 +787,13 @@ if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then
 	HAS_CHANGESET_ID=$(${PSQL} -qtAc "SELECT 1 FROM information_schema.columns WHERE table_name='pdm_changes' AND column_name='changeset_id'" 2>/dev/null | grep -q 1 && echo "1" || echo "0")
 	# Use Python to properly parse CSV with quoted fields containing commas
 	if [ "$HAS_CHANGESET_ID" = "1" ]; then
-		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 -c "
+		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 <<'PYTHON_SCRIPT'
 import sys
 import csv
 import json
 import re
 
-project = '${project.id}'
+project = "${project.id}"
 reader = csv.reader(sys.stdin)
 writer = csv.writer(sys.stdout, quoting=csv.QUOTE_MINIMAL)
 for row in reader:
@@ -747,17 +803,17 @@ for row in reader:
 	typeid = row[1]
 	version = row[2]
 	timestamp = row[3]
-	username = row[4].strip('\\"')
+	username = row[4].strip("\\"")
 	uid = row[5]
-	changeset_id = row[6] if len(row) > 6 and row[6] and row[6] != 'null' else ''
+	changeset_id = row[6] if len(row) > 6 and row[6] and row[6] != "null" else ""
 	# Tags is everything from field 7 onwards, join with commas
-	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
+	tags_str = ",".join(row[7:]) if len(row) > 7 else "{}"
 	# Remove outer quotes if present
-	if tags_str.startswith('"') and tags_str.endswith('"'):
+	if tags_str.startswith("\\"") and tags_str.endswith("\\""):
 		tags_str = tags_str[1:-1]
 	# The XSLT generates JSON with double quotes escaped as ""
 	# Convert "" to " for proper JSON parsing
-	tags_str = tags_str.replace('""', '"')
+	tags_str = tags_str.replace("\\"\\"", "\\"")
 	# Try to parse as JSON to validate and normalize
 	tags = None
 	try:
@@ -769,7 +825,7 @@ for row in reader:
 			# Extract key-value pairs from XSLT format: "key":"value"
 			# Handle escaped quotes in values
 			pairs = []
-			pattern = r'\"([^\"]+)\":\"([^\"]*(?:\\\\.[^\"]*)*)\"'
+			pattern = r'"([^"]+)":"([^"]*(?:\\\\.[^"]*)*)"'
 			for match in re.finditer(pattern, tags_str):
 				key = match.group(1)
 				value = match.group(2).replace('\\\\"', '"')
@@ -785,25 +841,26 @@ for row in reader:
 	if tags is not None:
 		tags_str = json.dumps(tags, ensure_ascii=False)
 	else:
-		tags_str = '{}'
+		tags_str = "{}"
 	
-	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
-	if '/' in typeid:
-		osmid = typeid.split('/')[1]
+	# Extract OSM ID from type/id (e.g., "node/123" -> "123")
+	if "/" in typeid:
+		osmid = typeid.split("/")[1]
 	else:
 		osmid = typeid
 	
 	# Output: project,action,osmid,version,timestamp,username,userid,changeset_id,tags
 	writer.writerow([project, action, osmid, version, timestamp, username, uid, changeset_id, tags_str])
-" > "${CSV_CHANGES}"
+PYTHON_SCRIPT
+		> "${CSV_CHANGES}"
 	else
-		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 -c "
+		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 <<'PYTHON_SCRIPT'
 import sys
 import csv
 import json
 import re
 
-project = '${project.id}'
+project = "${project.id}"
 reader = csv.reader(sys.stdin)
 writer = csv.writer(sys.stdout, quoting=csv.QUOTE_MINIMAL)
 for row in reader:
@@ -813,16 +870,16 @@ for row in reader:
 	typeid = row[1]
 	version = row[2]
 	timestamp = row[3]
-	username = row[4].strip('\\"')
+	username = row[4].strip("\\"")
 	uid = row[5]
 	# Tags is everything from field 7 onwards, join with commas
-	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
+	tags_str = ",".join(row[7:]) if len(row) > 7 else "{}"
 	# Remove outer quotes if present
-	if tags_str.startswith('"') and tags_str.endswith('"'):
+	if tags_str.startswith("\\"") and tags_str.endswith("\\""):
 		tags_str = tags_str[1:-1]
 	# The XSLT generates JSON with double quotes escaped as ""
 	# Convert "" to " for proper JSON parsing
-	tags_str = tags_str.replace('""', '"')
+	tags_str = tags_str.replace("\\"\\"", "\\"")
 	# Try to parse as JSON to validate and normalize
 	tags = None
 	try:
@@ -834,7 +891,7 @@ for row in reader:
 			# Extract key-value pairs from XSLT format: "key":"value"
 			# Handle escaped quotes in values
 			pairs = []
-			pattern = r'\"([^\"]+)\":\"([^\"]*(?:\\\\.[^\"]*)*)\"'
+			pattern = r'"([^"]+)":"([^"]*(?:\\\\.[^"]*)*)"'
 			for match in re.finditer(pattern, tags_str):
 				key = match.group(1)
 				value = match.group(2).replace('\\\\"', '"')
@@ -850,17 +907,18 @@ for row in reader:
 	if tags is not None:
 		tags_str = json.dumps(tags, ensure_ascii=False)
 	else:
-		tags_str = '{}'
+		tags_str = "{}"
 	
-	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
-	if '/' in typeid:
-		osmid = typeid.split('/')[1]
+	# Extract OSM ID from type/id (e.g., "node/123" -> "123")
+	if "/" in typeid:
+		osmid = typeid.split("/")[1]
 	else:
 		osmid = typeid
 	
 	# Output: project,action,osmid,version,timestamp,username,userid,tags
 	writer.writerow([project, action, osmid, version, timestamp, username, uid, tags_str])
-" > "${CSV_CHANGES}"
+PYTHON_SCRIPT
+		> "${CSV_CHANGES}"
 	fi
 	# Ne pas supprimer le fichier OSC s'il est récent (moins de 24h) pour pouvoir le réutiliser
 	if [ -f "\${TMP_OSC}" ] && [ -s "\${TMP_OSC}" ]; then

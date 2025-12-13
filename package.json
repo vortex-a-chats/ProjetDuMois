@@ -9,7 +9,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "pbf:update": "rm -f /tmp/pdm/11_pbf_update_tmp.sh 2>/dev/null || true; rm -f db/11_pbf_update_tmp.sh 2>/dev/null || true; node db/10_pbf_update.js",
     "features:update": "rm -f /tmp/pdm/21_features_update_tmp.sh 2>/dev/null || true; rm -f db/21_features_update_tmp.sh 2>/dev/null || true; node db/20_features_update.js",
-    "projects:update": "rm -f /tmp/pdm/31_projects_update_tmp.sh 2>/dev/null || true; rm -f db/31_projects_update_tmp.sh 2>/dev/null || true; node db/30_projects_update.js"
+    "projects:update": "rm -f /tmp/pdm/31_projects_update_tmp.sh 2>/dev/null || true; rm -f db/31_projects_update_tmp.sh 2>/dev/null || true; node db/30_projects_update.js",
+    "scripts:generate": "npm run pbf:update && npm run features:update && npm run projects:update",
+    "scripts:validate": "node scripts/validate_scripts.js",
+    "scripts:check": "npm run scripts:generate; npm run scripts:validate"
   },
   "repository": {
     "type": "git",
