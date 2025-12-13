@@ -751,16 +751,41 @@ for row in reader:
 	changeset_id = row[6] if len(row) > 6 and row[6] and row[6] != 'null' else ''
 	# Tags is everything from field 7 onwards, join with commas
 	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
-	# Remove outer quotes and fix escaped quotes
-	tags_str = tags_str.strip('\\"').replace('\\"\\"', '\\"')
+	# Remove outer quotes if present
+	if tags_str.startswith('"') and tags_str.endswith('"'):
+		tags_str = tags_str[1:-1]
+	# The XSLT generates JSON with double quotes escaped as ""
+	# Convert "" to " for proper JSON parsing
+	tags_str = tags_str.replace('""', '"')
 	# Try to parse as JSON to validate and normalize
+	tags = None
 	try:
 		tags = json.loads(tags_str)
+	except json.JSONDecodeError:
+		# If JSON parsing fails, try to rebuild from the XSLT format
+		# The XSLT format is: "key":"value","key2":"value2"
+		import re
+		try:
+			# Extract key-value pairs from XSLT format: "key":"value"
+			# Handle escaped quotes in values
+			pairs = []
+			pattern = r'"([^"]+)":"([^"]*(?:\\.[^"]*)*)"'
+			for match in re.finditer(pattern, tags_str):
+				key = match.group(1)
+				value = match.group(2).replace('\\"', '"')
+				pairs.append((key, value))
+			if pairs:
+				tags = dict(pairs)
+			else:
+				tags = {}
+		except:
+			tags = {}
+	
+	# Convert back to JSON string, ensuring it's valid
+	if tags is not None:
 		tags_str = json.dumps(tags, ensure_ascii=False)
-	except:
-		# If JSON parsing fails, use as-is but ensure it's valid JSON
-		if not tags_str.startswith('{'):
-			tags_str = '{}'
+	else:
+		tags_str = '{}'
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:
@@ -791,16 +816,41 @@ for row in reader:
 	uid = row[5]
 	# Tags is everything from field 7 onwards, join with commas
 	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
-	# Remove outer quotes and fix escaped quotes
-	tags_str = tags_str.strip('\\"').replace('\\"\\"', '\\"')
+	# Remove outer quotes if present
+	if tags_str.startswith('"') and tags_str.endswith('"'):
+		tags_str = tags_str[1:-1]
+	# The XSLT generates JSON with double quotes escaped as ""
+	# Convert "" to " for proper JSON parsing
+	tags_str = tags_str.replace('""', '"')
 	# Try to parse as JSON to validate and normalize
+	tags = None
 	try:
 		tags = json.loads(tags_str)
+	except json.JSONDecodeError:
+		# If JSON parsing fails, try to rebuild from the XSLT format
+		# The XSLT format is: "key":"value","key2":"value2"
+		import re
+		try:
+			# Extract key-value pairs from XSLT format: "key":"value"
+			# Handle escaped quotes in values
+			pairs = []
+			pattern = r'"([^"]+)":"([^"]*(?:\\.[^"]*)*)"'
+			for match in re.finditer(pattern, tags_str):
+				key = match.group(1)
+				value = match.group(2).replace('\\"', '"')
+				pairs.append((key, value))
+			if pairs:
+				tags = dict(pairs)
+			else:
+				tags = {}
+		except:
+			tags = {}
+	
+	# Convert back to JSON string, ensuring it's valid
+	if tags is not None:
 		tags_str = json.dumps(tags, ensure_ascii=False)
-	except:
-		# If JSON parsing fails, use as-is but ensure it's valid JSON
-		if not tags_str.startswith('{'):
-			tags_str = '{}'
+	else:
+		tags_str = '{}'
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:
