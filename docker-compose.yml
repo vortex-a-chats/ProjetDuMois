@@ -5,7 +5,7 @@ services:
     networks:
       - oim-internal
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./db/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
@@ -37,7 +37,7 @@ services:
       - ./lib:/opt/pdm/lib:ro
       - ./config.json:/opt/pdm/config.json:ro
     environment:
-      - DB_URL=postgres://postgres:pgpassword@localhost:5432/pdm
+      - DB_URL=postgres://postgres:pgpassword@localhost:${POSTGRES_PORT:-5433}/pdm
     dns:
       - 8.8.8.8
       - 8.8.4.4

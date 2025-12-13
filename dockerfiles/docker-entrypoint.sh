@@ -14,7 +14,7 @@ AVAILABLE_COMMANDS=(
     "update_projects: Update project statistics and history (optionally specify project ID, use --force-recalculate to recalculate all dates)"
     "update_quality: Calculate quality completion only"
     "update_global_stats: Update global statistics (notes France, hiking routes)"
-    "update_daily: Run daily updates (PBF, features, projects, global stats, use --force-recalculate to recalculate all dates)"
+    "update_daily: Run daily updates (PBF, features, projects, global stats, use --force-recalculate to recalculate all dates, use --with-quality to calculate quality completion)"
     "uninstall: Uninstall projects from database"
     "count_objects: Count objects in OSH file for a project (optionally specify project ID)"
     "latest_stats: Show latest measurement and date for each project"
@@ -317,6 +317,12 @@ list_commands() {
     echo "  # Run daily updates with full recalculation of all dates:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_daily --force-recalculate"
     echo ""
+    echo "  # Run daily updates with quality completion calculation:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_daily --with-quality"
+    echo ""
+    echo "  # Run daily updates with both options:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_daily --force-recalculate --with-quality"
+    echo ""
     echo "  # Update features for a specific project:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_features 2024-12_streetlamps"
     echo ""
@@ -557,8 +563,58 @@ NODE
         exit 1
     fi
     echo ""
-    echo "== Calculate quality completion scores (DISABLED)"
-    echo "   ⏭️  Quality completion calculation is currently disabled"
+    # Vérifier si l'option --with-quality est présente
+    if echo "$otherArgs" | grep -q -- "--with-quality"; then
+        echo "== Calculate quality completion scores"
+        echo "Collecte des projets avec mesure de qualité..."
+        PROJECTS_WITH_TAGS=$(node - <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const projectsDir = path.join(process.cwd(), 'projects');
+const results = [];
+fs.readdirSync(projectsDir).forEach((proj) => {
+  const infoPath = path.join(projectsDir, proj, 'info.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+    const tags = data.quality && Array.isArray(data.quality.required_tags) ? data.quality.required_tags : [];
+    if (tags.length > 0) {
+      const tagList = tags.map(t => "'" + String(t).replace(/'/g, "''") + "'").join(',');
+      results.push(proj + "|" + tagList);
+    }
+  } catch (e) {
+    // ignore invalid json or missing files
+  }
+});
+results.forEach(r => console.log(r));
+NODE
+)
+        if [ -z "$PROJECTS_WITH_TAGS" ]; then
+            echo "   ⏭️  Aucun projet avec quality.required_tags détecté."
+        else
+            ERROR_COUNT=0
+            while IFS='|' read -r PROJ TAGS; do
+                [ -z "$PROJ" ] && continue
+                echo "   => Calculate quality completion for $PROJ (all dates)"
+                SQL="SELECT pdm_calculate_quality_completion_all_dates('${PROJ//\'/\'\'}', ARRAY[${TAGS}]);"
+                if ! psql -d "$DB_URL" -v ON_ERROR_STOP=1 -c "$SQL"; then
+                    echo "   ❌ Erreur lors du calcul pour $PROJ"
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                else
+                    echo "   ✓ Calcul réussi pour $PROJ"
+                fi
+            done <<< "$PROJECTS_WITH_TAGS"
+            if [ $ERROR_COUNT -gt 0 ]; then
+                echo ""
+                echo "⚠️  $ERROR_COUNT projet(s) ont échoué lors du calcul de complétion"
+            else
+                echo ""
+                echo "✓ Tous les projets ont été traités avec succès"
+            fi
+        fi
+    else
+        echo "== Calculate quality completion scores (SKIPPED)"
+        echo "   ⏭️  Quality completion calculation skipped (use --with-quality to enable)"
+    fi
     echo ""
     echo "== Update global statistics"
     node db/40_global_stats_update.js

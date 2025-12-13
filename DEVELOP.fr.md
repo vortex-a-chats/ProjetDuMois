@@ -546,18 +546,37 @@ docker run -d --rm [--network=your-network] -p 3000:3000 --name=pdm -v host_work
 
 ### Docker compose
 
-Un fichier docker-compose est fourni ici pour faciliter l'execution de la plateforme. Cela ne vous dispensera pas de créer la base de données, y ajouter les bons rôles et configurer pdm de manière appropriée selon la méthode expliquée ci-dessus.
-Docker-compose permet seulement de faciliter l'execution d'une instance déjà fonctionnelle si et seulement si elle a été configurée correctement préalablement.
-
-En fonction de la configuration de votre serveur Postgresql, vous devrez certainement adapter la valeur de la variable `DB_URL` dans le fichier compose pour permettre au serveur pdm d'accéder à la base de données correctement.
-
-N'essayez pas de débuter la configuration d'une instance avec docker-compose, essayez plutôt d'obtenir une configuration fonctionnelle de chaque composant et de vous assurer que tout fonctionne séparément d'abord.
-Une fois que vous avez constaté que tout fonctionnait, lancez-vous avec docker-compose pour faciliter les executions futures.
+Avant de lancer docker compose il faut préparer la config.
 
 Pour démarrer :
+créer et remplir le fichier `config.json`, inspirez vous de config.example.json.
+
+
+```
+{
+"OSM_USER": "example@example.com",
+	"OSM_PASS": "blah-blah(blah)",
+	"OSM_API_KEY": "csdfkljlsjdflkdsfkljdfskldsf_a_changer_hein",
+	"OSM_API_SECRET": "sdfklksfkljqsozperorieziorpezpoire_a_changer_han",
+"OSH_PBF_URL": "https://osm-internal.download.geofabrik.de/europe/france/reunion-internal.osh.pbf",
+  }
+```
+le fichier historique OSH peut être celui ci par exemple
+"OSH_PBF_URL": "https://osm-internal.download.geofabrik.de/europe/france/provence-alpes-cote-d-azur-internal.osh.pbf",
+celui de la réunion est le plus petit disponible, idéal pour tester en développement.
+
+les propriétés de `config.json` nécessaires sont:
+un compte osm et son pass,
+un identifiant et secret d'app à créer dans les params du compte sur osm.org 
+
+Ensuite, lancement de docker, que vous pouvez installer via snap sur ubuntu.
+
 
 ```
 # initialisation et récupération des données depuis geofabrik
+# construire l'image pdm depuis les sources avant de lancer les images.
+git clone https://github.com/vortex-a-chats/ProjetDuMois
+docker build -t pdm/server:latest .
 docker-compose up -d
 docker-compose exec pdm ./docker-entrypoint.sh init
 docker-compose exec pdm ./docker-entrypoint.sh update_daily
