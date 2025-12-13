@@ -580,6 +580,7 @@ git submodule init
 git submodule update
 docker build -t pdm/server:latest .
 docker-compose up -d
+docker-compose exec pdm ./docker-entrypoint.sh install
 docker-compose exec pdm ./docker-entrypoint.sh init
 docker-compose exec pdm ./docker-entrypoint.sh update_daily
 # démarrage du frontend sur le port 3000

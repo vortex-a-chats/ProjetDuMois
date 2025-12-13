@@ -140,6 +140,11 @@ projectsToProcess.forEach(e => {
 	}
 });
 
+// Ensure work directory exists before writing files
+if (!fs.existsSync(CONFIG.WORK_DIR)) {
+	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
+}
+
 if (IMPOSM_ENABLED){
 	fs.writeFile(IMPOSM_YML, yaml.safeDump(yamlData), err => {
 		if(err) {
@@ -401,11 +406,6 @@ script += `${separator}
 
 echo "Done"
 `;
-
-// Ensure work directory exists
-if (!fs.existsSync(CONFIG.WORK_DIR)) {
-	fs.mkdirSync(CONFIG.WORK_DIR, { recursive: true });
-}
 
 // Script de mise à jour
 fs.writeFile(OUTPUT_SCRIPT, script, { mode: 0o766 }, err => {
