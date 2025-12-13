@@ -52,6 +52,7 @@ if (IMPOSM_ENABLED == null){
 }
 
 const OSC2CSV = __dirname+'/osc2csv.xslt';
+const PBF_UPDATE_SCRIPT = __dirname+'/11_pbf_update_tmp.sh';
 const OSC_USEFULL = CONFIG.WORK_DIR + '/extract_filtered.osc.gz';
 
 const CSV_CHANGES = CONFIG.WORK_DIR + '/change.csv';
@@ -269,16 +270,91 @@ else
 	echo "   ✓ osc2csv.xslt found at $OSC2CSV"
 fi
 
-# Vérifier que le fichier OSH existe
-if [ ! -f "${OSH_UPDATED}" ]; then
-	echo "ERROR: OSH file not found: ${OSH_UPDATED}"
-	echo "Please run 'update_pbf' first to download and update the OSH file."
-	exit 1
-fi
+# Fonction pour vérifier et régénérer le fichier OSH si nécessaire
+check_and_regenerate_osh() {
+	local osh_file="${OSH_UPDATED}"
+	local needs_regeneration=false
+	
+	# Vérifier que le fichier existe
+	if [ ! -f "$osh_file" ]; then
+		echo "⚠️  OSH file not found: $osh_file"
+		needs_regeneration=true
+	else
+		# Vérifier la taille du fichier
+		local osh_size=$(stat -f%z "$osh_file" 2>/dev/null || stat -c%s "$osh_file" 2>/dev/null || echo "0")
+		local osh_size_mb=$((osh_size / 1024 / 1024))
+		
+		# Vérifier que le fichier n'est pas vide (minimum 1 MB pour être valide)
+		if [ "$osh_size" -lt 1048576 ]; then
+			echo "⚠️  OSH file is too small or empty: $osh_file"
+			echo "   File size: $osh_size bytes ($osh_size_mb MB)"
+			echo "   Expected minimum: 1 MB"
+			needs_regeneration=true
+		else
+			# Vérifier que le fichier est un fichier PBF valide (pas HTML/text)
+			local first_bytes=$(head -c 20 "$osh_file" 2>/dev/null || echo "")
+			if echo "$first_bytes" | grep -qi "<!DOCTYPE\|<html\|text/html"; then
+				echo "⚠️  OSH file appears to be invalid (HTML/text instead of PBF): $osh_file"
+				echo "   The file may be an error page from the server."
+				needs_regeneration=true
+			fi
+		fi
+	fi
+	
+	# Si le fichier est invalide, régénérer
+	if [ "$needs_regeneration" = "true" ]; then
+		echo "   => Regenerating OSH file by running update_pbf..."
+		echo ""
+		
+		# Générer le script update_pbf
+		if ! npm run pbf:update 2>&1; then
+			echo "❌ ERROR: Failed to generate update_pbf script"
+			exit 1
+		fi
+		
+		# Exécuter le script update_pbf
+		local pbf_script="${CONFIG.WORK_DIR}/11_pbf_update_tmp.sh"
+		if [ ! -f "$pbf_script" ]; then
+			pbf_script="${PBF_UPDATE_SCRIPT}"
+		fi
+		
+		if [ -f "$pbf_script" ]; then
+			if ! bash "$pbf_script" 2>&1; then
+				echo "❌ ERROR: Failed to regenerate OSH file"
+				echo "   Please check the update_pbf script output above for details"
+				exit 1
+			fi
+		else
+			echo "❌ ERROR: update_pbf script not found: $pbf_script"
+			exit 1
+		fi
+		
+		# Vérifier à nouveau que le fichier existe maintenant et est valide
+		if [ ! -f "$osh_file" ]; then
+			echo "❌ ERROR: OSH file still not found after regeneration: $osh_file"
+			exit 1
+		fi
+		
+		local osh_size=$(stat -f%z "$osh_file" 2>/dev/null || stat -c%s "$osh_file" 2>/dev/null || echo "0")
+		if [ "$osh_size" -lt 1048576 ]; then
+			echo "❌ ERROR: OSH file is still too small after regeneration: $osh_file"
+			echo "   File size: $osh_size bytes"
+			exit 1
+		fi
+		
+		echo "   ✓ OSH file successfully regenerated"
+		echo ""
+	fi
+}
 
-# Afficher la taille du fichier (sans contrôle de taille minimale)
+# Vérifier et régénérer le fichier OSH si nécessaire
+check_and_regenerate_osh
+
+# Afficher la taille du fichier (maintenant qu'on est sûr qu'il est valide)
 OSH_SIZE=$(stat -f%z "${OSH_UPDATED}" 2>/dev/null || stat -c%s "${OSH_UPDATED}" 2>/dev/null || echo "0")
 OSH_SIZE_MB=$((OSH_SIZE / 1024 / 1024))
+
+# Afficher la taille du fichier
 if [ "$OSH_SIZE_MB" -gt 1024 ]; then
 	OSH_SIZE_GB=$(echo "scale=2; \$OSH_SIZE / 1024 / 1024 / 1024" | bc)
 	echo "✓ OSH file found: \$OSH_SIZE_GB GB"
@@ -662,6 +738,7 @@ import json
 
 project = '${project.id}'
 reader = csv.reader(sys.stdin)
+writer = csv.writer(sys.stdout, quoting=csv.QUOTE_MINIMAL)
 for row in reader:
 	if len(row) < 8:
 		continue
@@ -671,11 +748,19 @@ for row in reader:
 	timestamp = row[3]
 	username = row[4].strip('\\"')
 	uid = row[5]
-	changeset_id = row[6] if row[6] and row[6] != 'null' else ''
+	changeset_id = row[6] if len(row) > 6 and row[6] and row[6] != 'null' else ''
 	# Tags is everything from field 7 onwards, join with commas
-	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
+	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
 	# Remove outer quotes and fix escaped quotes
-	tags = tags.strip('\\"').replace('\\"\\"', '\\"')
+	tags_str = tags_str.strip('\\"').replace('\\"\\"', '\\"')
+	# Try to parse as JSON to validate and normalize
+	try:
+		tags = json.loads(tags_str)
+		tags_str = json.dumps(tags, ensure_ascii=False)
+	except:
+		# If JSON parsing fails, use as-is but ensure it's valid JSON
+		if not tags_str.startswith('{'):
+			tags_str = '{}'
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:
@@ -684,15 +769,17 @@ for row in reader:
 		osmid = typeid
 	
 	# Output: project,action,osmid,version,timestamp,username,userid,changeset_id,tags
-	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{changeset_id},{tags}')
+	writer.writerow([project, action, osmid, version, timestamp, username, uid, changeset_id, tags_str])
 " > "${CSV_CHANGES}"
 	else
 		xsltproc "${OSC2CSV}" "\${TMP_OSC}" | python3 -c "
 import sys
 import csv
+import json
 
 project = '${project.id}'
 reader = csv.reader(sys.stdin)
+writer = csv.writer(sys.stdout, quoting=csv.QUOTE_MINIMAL)
 for row in reader:
 	if len(row) < 8:
 		continue
@@ -703,9 +790,17 @@ for row in reader:
 	username = row[4].strip('\\"')
 	uid = row[5]
 	# Tags is everything from field 7 onwards, join with commas
-	tags = ','.join(row[7:]) if len(row) > 7 else '{}'
+	tags_str = ','.join(row[7:]) if len(row) > 7 else '{}'
 	# Remove outer quotes and fix escaped quotes
-	tags = tags.strip('\\"').replace('\\"\\"', '\\"')
+	tags_str = tags_str.strip('\\"').replace('\\"\\"', '\\"')
+	# Try to parse as JSON to validate and normalize
+	try:
+		tags = json.loads(tags_str)
+		tags_str = json.dumps(tags, ensure_ascii=False)
+	except:
+		# If JSON parsing fails, use as-is but ensure it's valid JSON
+		if not tags_str.startswith('{'):
+			tags_str = '{}'
 	
 	# Extract OSM ID from type/id (e.g., 'node/123' -> '123')
 	if '/' in typeid:
@@ -714,7 +809,7 @@ for row in reader:
 		osmid = typeid
 	
 	# Output: project,action,osmid,version,timestamp,username,userid,tags
-	print(f'{project},{action},{osmid},{version},{timestamp},{username},{uid},{tags}')
+	writer.writerow([project, action, osmid, version, timestamp, username, uid, tags_str])
 " > "${CSV_CHANGES}"
 	fi
 	# Ne pas supprimer le fichier OSC s'il est récent (moins de 24h) pour pouvoir le réutiliser

@@ -10,7 +10,6 @@
   },
   "quality": {
     "required_tags": [
-   
       "cuisine",
       "name"
     ]
