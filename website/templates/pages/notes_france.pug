@@ -56,7 +56,8 @@ block content
 			div.container
 				div.row
 					div.col-12
-						h2.mb-3= __("Notes les plus récentes")
+						h2.mb-3= __("Notes les plus récentes (nouvelles et résolues)")
+						p.text-muted.small.mb-3= __("Affichage des 50 notes les plus récentes en France, triées par date de dernière activité.")
 						div.table-responsive
 							table.table.table-striped.table-hover
 								thead.thead-dark
@@ -66,7 +67,8 @@ block content
 										th= __("Contenu")
 										th= __("Date de création")
 										th= __("Date de fermeture")
-										th= __("Lien OSM")
+										th= __("Dernière activité")
+										th= __("Actions")
 								tbody
 									each note in recentNotes
 										tr
@@ -79,20 +81,31 @@ block content
 													span.badge.badge-success= __("Fermée")
 											td
 												if note.comment
-													span.text-muted(style="max-width: 400px; display: inline-block;")= note.comment.substring(0, 100) + (note.comment.length > 100 ? '...' : '')
+													span(style="max-width: 400px; display: inline-block;")= note.comment.substring(0, 150) + (note.comment.length > 150 ? '...' : '')
 												else
 													span.text-muted= __("Aucun commentaire")
 											td
-												small= new Date(note.date_created).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+												small= new Date(note.date_created).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 											td
 												if note.date_closed
-													small= new Date(note.date_closed).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+													small= new Date(note.date_closed).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 												else
 													span.text-muted= __("-")
 											td
-												a.btn.btn-sm.btn-primary(href=note.url target="_blank" rel="noopener noreferrer")
+												small
+													if note.date_closed
+														= new Date(note.date_closed).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+													else if note.last_comment_date
+														= new Date(note.last_comment_date).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+													else
+														= new Date(note.date_created).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+											td
+												a.btn.btn-sm.btn-primary(href=note.url target="_blank" rel="noopener noreferrer" title=__("Voir la note sur OSM"))
 													i.fa.fa-external-link-alt.mr-1
 													= __("Voir")
+												span.ml-2
+													a.btn.btn-sm.btn-outline-secondary(href=`https://www.openstreetmap.org/?mlat=${note.lat}&mlon=${note.lon}&zoom=18&layers=N` target="_blank" rel="noopener noreferrer" title=__("Voir sur la carte"))
+														i.fa.fa-map-marker-alt
 
 	// Graphique d'évolution des notes (existant)
 	div.container-fluid.py-5.pdm-section-highlight

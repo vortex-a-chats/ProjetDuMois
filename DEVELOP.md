@@ -570,6 +570,9 @@ Once everything runs normally, you can use the following for further runs:
 To start:
 
 ```
+docker build -t pdm/server:latest .
+# build only once, not needed after.
+# run all images
 docker-compose up
 ```
 

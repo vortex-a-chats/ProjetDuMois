@@ -14,7 +14,7 @@ AVAILABLE_COMMANDS=(
     "update_projects: Update project statistics and history (optionally specify project ID, use --force-recalculate to recalculate all dates)"
     "update_quality: Calculate quality completion only"
     "update_global_stats: Update global statistics (notes France, hiking routes)"
-    "update_daily: Run daily updates (PBF, features, projects, global stats)"
+    "update_daily: Run daily updates (PBF, features, projects, global stats, use --force-recalculate to recalculate all dates)"
     "uninstall: Uninstall projects from database"
     "count_objects: Count objects in OSH file for a project (optionally specify project ID)"
     "latest_stats: Show latest measurement and date for each project"
@@ -311,6 +311,12 @@ list_commands() {
     echo "  # Update projects and force recalculation of all dates:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_projects --force-recalculate"
     echo ""
+    echo "  # Run daily updates:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_daily"
+    echo ""
+    echo "  # Run daily updates with full recalculation of all dates:"
+    echo "  docker-compose exec pdm ./docker-entrypoint.sh update_daily --force-recalculate"
+    echo ""
     echo "  # Update features for a specific project:"
     echo "  docker-compose exec pdm ./docker-entrypoint.sh update_features 2024-12_streetlamps"
     echo ""
@@ -540,7 +546,8 @@ NODE
         echo "ERROR: Script 21_features_update_tmp.sh not found"
         exit 1
     fi
-    npm run projects:update $otherArgs
+    # Passer les arguments (y compris --force-recalculate) directement au script Node.js
+    node db/30_projects_update.js $otherArgs
     if [ -f "/tmp/pdm/31_projects_update_tmp.sh" ]; then
         /tmp/pdm/31_projects_update_tmp.sh $otherArgs
     elif [ -f "./db/31_projects_update_tmp.sh" ]; then

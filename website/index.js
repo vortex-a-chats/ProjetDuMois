@@ -1914,11 +1914,49 @@ app.get("/projects/:id/deletions", (req, res) => {
       [req.params.id],
     )
     .then((results) => {
-      const chartData = results.rows.map((r) => ({
-        t: r.date,
-        y: parseInt(r.deletion_count) || 0,
-        users: parseInt(r.user_count) || 0,
-      }));
+      // Find the most recent month
+      if (results.rows.length === 0) {
+        return res.json({
+          chart: [],
+          changesets: [],
+        });
+      }
+      
+      const allDates = results.rows.map(r => new Date(r.date));
+      const mostRecentDate = new Date(Math.max(...allDates));
+      const mostRecentMonth = new Date(mostRecentDate.getFullYear(), mostRecentDate.getMonth(), 1);
+      
+      // Aggregate: monthly for old data, daily for the most recent month
+      const aggregatedData = new Map();
+      
+      results.rows.forEach((r) => {
+        const date = new Date(r.date);
+        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+        const isRecentMonth = monthStart.getTime() === mostRecentMonth.getTime();
+        
+        const key = isRecentMonth ? date.toISOString().split('T')[0] : monthStart.toISOString().split('T')[0];
+        
+        if (!aggregatedData.has(key)) {
+          aggregatedData.set(key, {
+            t: isRecentMonth ? date : monthStart,
+            y: 0,
+            maxUsers: 0
+          });
+        }
+        
+        const entry = aggregatedData.get(key);
+        entry.y += parseInt(r.deletion_count) || 0;
+        if (r.user_count) {
+          // For monthly aggregation, we'll use the max user count per day
+          entry.maxUsers = Math.max(entry.maxUsers, parseInt(r.user_count) || 0);
+        }
+      });
+      
+      const chartData = Array.from(aggregatedData.values()).map(entry => ({
+        t: entry.t,
+        y: entry.y,
+        users: entry.maxUsers || 0
+      })).sort((a, b) => new Date(a.t) - new Date(b.t));
 
       // Get changesets with deletions (grouped by changeset_id, or by user and date if changeset_id is null)
       // First check if changeset_id column exists
@@ -2210,33 +2248,57 @@ app.get("/notes-france", (req, res) => {
   `,
   );
 
-  // Récupérer les 10 dernières notes via l'API OSM
+  // Récupérer les notes récentes (nouvelles et résolues) via l'API OSM
   // La bbox doit être limitée à 25 degrés (max 5x5)
   // On utilise une bbox centrée sur la France (environ 4x4 degrés)
-  const notesQuery = fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,46.0,6.0,50.0&limit=10`)
-    .then(res => {
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      return res.json();
-    })
-    .then(jsonData => {
+  // On récupère plus de notes pour filtrer les nouvelles et résolues récentes
+  const notesQuery = Promise.all([
+    // Notes ouvertes récentes (nouvelles)
+    fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,46.0,6.0,50.0&limit=100&closed=0`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .catch((err) => {
+        console.error("Error fetching open OSM notes:", err);
+        return { features: [] };
+      }),
+    // Notes fermées récentes (résolues)
+    fetch(`https://api.openstreetmap.org/api/0.6/notes.json?bbox=2.0,46.0,6.0,50.0&limit=100&closed=1`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .catch((err) => {
+        console.error("Error fetching closed OSM notes:", err);
+        return { features: [] };
+      })
+  ])
+    .then(([openNotesData, closedNotesData]) => {
       // L'API OSM peut retourner soit un objet GeoJSON avec features, soit directement un tableau
-      let features = [];
-      if (jsonData.features && Array.isArray(jsonData.features)) {
-        features = jsonData.features;
-      } else if (Array.isArray(jsonData)) {
-        features = jsonData;
-      } else if (jsonData.type === 'FeatureCollection' && jsonData.features) {
-        features = jsonData.features;
-      }
+      let allFeatures = [];
       
-      const notes = features.map(feature => {
+      [openNotesData, closedNotesData].forEach(jsonData => {
+        if (jsonData.features && Array.isArray(jsonData.features)) {
+          allFeatures = allFeatures.concat(jsonData.features);
+        } else if (Array.isArray(jsonData)) {
+          allFeatures = allFeatures.concat(jsonData);
+        } else if (jsonData.type === 'FeatureCollection' && jsonData.features) {
+          allFeatures = allFeatures.concat(jsonData.features);
+        }
+      });
+      
+      const notes = allFeatures.map(feature => {
         // Le format OSM est un FeatureCollection avec des Feature
         const props = feature.properties || {};
         const geometry = feature.geometry || {};
         const comments = props.comments || [];
         const firstComment = comments[0] || {};
+        const lastComment = comments[comments.length - 1] || {};
         const coords = geometry.coordinates || [];
         
         return {
@@ -2248,10 +2310,19 @@ app.get("/notes-france", (req, res) => {
           date_closed: props.closed_at,
           comment: firstComment.text || '',
           comment_date: firstComment.date || props.date_created,
+          last_comment_date: lastComment.date || props.date_created,
           url: `https://www.openstreetmap.org/note/${props.id}`
         };
       });
-      return notes;
+      
+      // Trier par date de dernière activité (création ou dernier commentaire) et prendre les 50 plus récentes
+      notes.sort((a, b) => {
+        const dateA = new Date(a.date_closed || a.last_comment_date || a.date_created);
+        const dateB = new Date(b.date_closed || b.last_comment_date || b.date_created);
+        return dateB - dateA;
+      });
+      
+      return notes.slice(0, 50);
     })
     .catch((err) => {
       console.error("Error fetching OSM notes:", err);

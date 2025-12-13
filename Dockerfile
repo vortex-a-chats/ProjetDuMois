@@ -31,7 +31,6 @@ RUN curl -L https://github.com/omniscale/imposm3/releases/download/v${IMPOSM3_VE
 WORKDIR /opt/pdm
 
 COPY --chown=osm:osm ./lib ./lib
-RUN sed -i -e 's/allow_read_prefs": "yes"/allow_read_prefs": "1"/g' ./lib/sendfile_osm_oauth_protector/oauth_cookie_client.py
 
 COPY --chown=osm:osm ./package.json ./package.json
 RUN npm install
