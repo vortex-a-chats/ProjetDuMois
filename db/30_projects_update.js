@@ -844,12 +844,16 @@ for day in "\${days[@]}"; do
 	script += `
 			if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
 				# Convert to OSM format for counting
+				# Since the file is already filtered by tags, we count all objects in it
+				# This ensures we count the same objects that are in the database (nodes and ways, not relations)
 				if osmium export "${osmStats}" -f osm.pbf -O -o "${osmStats}.osm.pbf" 2>/dev/null; then
-					nbday=$(osmium tags-count "${osmStats}.osm.pbf" --no-progress -F osm.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+					# Count all objects in the filtered file (nodes + ways)
+					# Use fileinfo to get accurate counts
+					nbday=$(osmium fileinfo "${osmStats}.osm.pbf" --extended --no-progress 2>/dev/null | grep -E "nodes|ways" | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
 					rm -f "${osmStats}.osm.pbf"
 				else
-					# Fallback: try counting directly on OSH file
-					nbday=$(osmium tags-count "${osmStats}" --no-progress -F osh.pbf ${tagFilterLastPart} 2>/dev/null | cut -d$'\\t' -f 1 | paste -sd+ | bc 2>/dev/null || echo "0")
+					# Fallback: count from OSH file using fileinfo
+					nbday=$(osmium fileinfo "${osmStats}" --extended --no-progress 2>/dev/null | grep -E "nodes|ways" | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
 				fi
 				if [ "$nbday" == "" ]; then
 					nbday="0"

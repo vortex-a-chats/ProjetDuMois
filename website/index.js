@@ -1053,6 +1053,24 @@ app.get("/projects/:id/stats", (req, res) => {
               ? Math.max(0, totalToIntegrate - currentAmount)
               : null;
 
+          // Calculate ETA based on last 180 days (6 months) average
+          // If remaining > 0, calculate ETA; if no changes in 6 months, ETA is infinite
+          let etaDays = null;
+          if (remaining != null && remaining > 0) {
+            if (added180d != null && added180d > 0) {
+              const avgPerDay = added180d / 180;
+              if (avgPerDay > 0) {
+                etaDays = remaining / avgPerDay;
+              } else {
+                // No changes in 6 months = infinite time
+                etaDays = Infinity;
+              }
+            } else {
+              // No data for 180 days or zero changes = infinite time
+              etaDays = Infinity;
+            }
+          }
+
           // Calculate variations between consecutive measurements
           const variationData = [];
           for (let i = 1; i < chartData.length; i++) {
@@ -1087,6 +1105,8 @@ app.get("/projects/:id/stats", (req, res) => {
             ],
             added,
             currentAmount,
+            remaining,
+            etaDays,
             addedWeek,
             added30d,
             added180d,

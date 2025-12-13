@@ -126,3 +126,73 @@ Le système vérifie automatiquement que :
 ## Accès au site web
 
 Une fois les services démarrés, le site web est accessible sur http://localhost:3000
+
+## Configuration Caddy (reverse proxy avec HTTPS)
+
+Un fichier `Caddyfile` est fourni pour configurer Caddy comme reverse proxy avec HTTPS automatique via Let's Encrypt.
+
+### Installation de Caddy
+
+Sur Debian/Ubuntu :
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+### Configuration
+
+Le fichier `Caddyfile` est déjà configuré pour le domaine `podoma.cipherbliss.com`. Il fait un reverse proxy vers `localhost:3000` et gère automatiquement les certificats SSL/TLS.
+
+### Utilisation
+
+1. **Vérifier que le DNS pointe vers votre serveur** :
+   - Le domaine `podoma.cipherbliss.com` doit pointer vers l'IP de votre serveur
+   - Vérifiez avec : `dig podoma.cipherbliss.com` ou `nslookup podoma.cipherbliss.com`
+
+2. **Démarrer l'application** :
+   ```bash
+   docker-compose up -d pdm
+   ```
+
+3. **Tester la configuration Caddy** :
+   ```bash
+   sudo caddy validate --config Caddyfile
+   ```
+
+4. **Démarrer Caddy** :
+   ```bash
+   # Mode test (sans certificat réel)
+   sudo caddy run --config Caddyfile
+   
+   # Mode production (avec certificats Let's Encrypt)
+   sudo caddy start --config Caddyfile
+   ```
+
+5. **Activer Caddy au démarrage** (systemd) :
+   ```bash
+   sudo systemctl enable caddy
+   sudo systemctl start caddy
+   ```
+
+### Personnalisation
+
+Pour utiliser un autre domaine, modifiez la première ligne du `Caddyfile` :
+
+```
+votre-domaine.com {
+    # ... reste de la configuration
+}
+```
+
+### Logs
+
+Les logs sont écrits dans `/var/log/caddy/podoma.cipherbliss.com.log` (format JSON).
+
+Pour consulter les logs en temps réel :
+```bash
+sudo tail -f /var/log/caddy/podoma.cipherbliss.com.log
+```

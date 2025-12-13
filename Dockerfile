@@ -30,6 +30,9 @@ RUN curl -L https://github.com/omniscale/imposm3/releases/download/v${IMPOSM3_VE
 
 WORKDIR /opt/pdm
 
+# Copy lib directory (including git submodules)
+# Note: Git submodules must be initialized before building the Docker image
+# Run: git submodule update --init --recursive
 COPY --chown=osm:osm ./lib ./lib
 
 COPY --chown=osm:osm ./package.json ./package.json

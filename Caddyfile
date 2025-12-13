@@ -1,0 +1,39 @@
+podoma.cipherbliss.com {
+	# Reverse proxy vers l'application Node.js sur le port 3000
+	reverse_proxy localhost:3000 {
+		# Headers pour préserver les informations du client
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		
+		# Timeout pour les requêtes longues
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+	
+	# Compression gzip
+	encode gzip
+	
+	# Headers de sécurité
+	header {
+		# Protection XSS
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+	
+	# Logs
+	log {
+		output file /var/log/caddy/podoma.cipherbliss.com.log {
+			roll_size 100mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+	}
+}
+

@@ -15,10 +15,31 @@ from pathlib import Path
 
 def get_cookie(osm_host, osm_user, osm_pass, consumer_url, cookie_file=None):
     """Get OSM authentication cookie using oauth_cookie_client.py"""
-    script_path = Path(__file__).parent.parent / "lib" / "sendfile_osm_oauth_protector" / "oauth_cookie_client.py"
+    # Try multiple possible paths for oauth_cookie_client.py
+    possible_paths = [
+        # Path relative to download_osh_pbf.py location (db/../lib/...)
+        Path(__file__).parent.parent / "lib" / "sendfile_osm_oauth_protector" / "oauth_cookie_client.py",
+        # Absolute path in container
+        Path("/opt/pdm/lib/sendfile_osm_oauth_protector/oauth_cookie_client.py"),
+        # Path relative to current working directory
+        Path("lib/sendfile_osm_oauth_protector/oauth_cookie_client.py"),
+        # Path from environment variable or default
+        Path(os.environ.get("PDM_LIB_DIR", "/opt/pdm/lib")) / "sendfile_osm_oauth_protector" / "oauth_cookie_client.py",
+    ]
     
-    if not script_path.exists():
-        print(f"ERROR: oauth_cookie_client.py not found at {script_path}", file=sys.stderr)
+    script_path = None
+    for path in possible_paths:
+        if path.exists():
+            script_path = path
+            break
+    
+    if not script_path or not script_path.exists():
+        print(f"ERROR: oauth_cookie_client.py not found", file=sys.stderr)
+        print(f"   Searched in:", file=sys.stderr)
+        for path in possible_paths:
+            print(f"     - {path}", file=sys.stderr)
+        print(f"   Please ensure git submodules are initialized:", file=sys.stderr)
+        print(f"     git submodule update --init --recursive", file=sys.stderr)
         return None
     
     cmd = [
