@@ -117,20 +117,29 @@ block content
 									img(src=proj.icon alt="" style="height: 100px")
 								div.media-body.align-self-center
 									a.text-decoration-none(href=`/projects/${proj.id}`)= proj.title
-									if proj.stats && proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
-										- var count = proj.stats.last30Days || 0
-										- // Plus vert = plus d'objets intégrés (0 = rouge, beaucoup = vert foncé)
-										- // Utiliser une échelle logarithmique pour la couleur
-										- var maxForColor = 1000 // Au-delà de 1000 objets, on considère que c'est vert foncé
-										- var normalized = Math.min(100, (count / maxForColor) * 100)
-										- var hue = Math.min(120, normalized * 1.2) // 0-120 (rouge à vert)
-										- var saturation = Math.min(85, 30 + normalized * 0.55)
-										- var lightness = Math.max(35, 50 - normalized * 0.15)
-										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
-										- var tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
+									if proj.stats && (proj.stats.currentAmount !== undefined || proj.stats.last30Days !== null)
+										- var currentAmount = proj.stats.currentAmount || 0
+										- var last30Days = proj.stats.last30Days || 0
+										- var formatCount = function(count) { return count >= 1000 ? Math.round(count / 1000) + 'k' : count.toString(); }
 										div.mt-2
-											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
-												= `${count.toLocaleString('fr-FR')} objets`
+											// Badge nombre total d'objets
+											if currentAmount > 0
+												- var formattedTotal = formatCount(currentAmount)
+												span.badge(style="background-color: #4a90e2; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; margin-right: 4px;" title=`Nombre total d'objets comptés (${currentAmount.toLocaleString('fr-FR')})`)
+													= `${formattedTotal} objets`
+											// Badge objets ajoutés dans les 30 derniers jours
+											if proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
+												- var count = last30Days
+												- var formattedCount = formatCount(count)
+												- var maxForColor = 1000
+												- var normalized = Math.min(100, (count / maxForColor) * 100)
+												- var hue = Math.min(120, normalized * 1.2)
+												- var saturation = Math.min(85, 30 + normalized * 0.55)
+												- var lightness = Math.max(35, 50 - normalized * 0.15)
+												- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+												- var tooltipText = `Nombre d'objets ajoutés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
+												span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
+													= `+${formattedCount} (30j)`
 											if proj.stats && proj.stats.etaDays !== null && proj.stats.etaDays !== undefined && proj.stats.remaining > 0
 												- var etaDays = proj.stats.etaDays
 												- var etaYears = etaDays / 365
@@ -142,10 +151,10 @@ block content
 														if showFire
 															= "🔥 "
 														= "ETA: " + etaText
-									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
+									else
 										- // Afficher "0 objets" pour les projets sans données encore
 										div.mt-2
-											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible pour les 30 derniers jours")
+											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible")
 												= "0 objet"
 
 	//- Other projects
@@ -167,19 +176,29 @@ block content
 									a.text-decoration-none(href=`/projects/${proj.id}`)
 										| #{proj.title}
 										span.text-muted.d-block= new Date(proj.month).toLocaleString(getLocale(), { month: 'long', year: 'numeric' })
-									if proj.stats && proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
-										- var count = proj.stats.last30Days || 0
-										- // Plus vert = plus d'objets intégrés (0 = rouge, beaucoup = vert foncé)
-										- var maxForColor = 1000
-										- var normalized = Math.min(100, (count / maxForColor) * 100)
-										- var hue = Math.min(120, normalized * 1.2)
-										- var saturation = Math.min(85, 30 + normalized * 0.55)
-										- var lightness = Math.max(35, 50 - normalized * 0.15)
-										- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
-										- var tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
+									if proj.stats && (proj.stats.currentAmount !== undefined || proj.stats.last30Days !== null)
+										- var currentAmount = proj.stats.currentAmount || 0
+										- var last30Days = proj.stats.last30Days || 0
+										- var formatCount = function(count) { return count >= 1000 ? Math.round(count / 1000) + 'k' : count.toString(); }
 										div.mt-1
-											span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
-												= `${count.toLocaleString('fr-FR')} objets`
+											// Badge nombre total d'objets
+											if currentAmount > 0
+												- var formattedTotal = formatCount(currentAmount)
+												span.badge(style="background-color: #4a90e2; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; margin-right: 4px;" title=`Nombre total d'objets comptés (${currentAmount.toLocaleString('fr-FR')})`)
+													= `${formattedTotal} objets`
+											// Badge objets ajoutés dans les 30 derniers jours
+											if proj.stats.last30Days !== null && proj.stats.last30Days !== undefined
+												- var count = last30Days
+												- var formattedCount = formatCount(count)
+												- var maxForColor = 1000
+												- var normalized = Math.min(100, (count / maxForColor) * 100)
+												- var hue = Math.min(120, normalized * 1.2)
+												- var saturation = Math.min(85, 30 + normalized * 0.55)
+												- var lightness = Math.max(35, 50 - normalized * 0.15)
+												- var badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`
+												- var tooltipText = `Nombre d'objets ajoutés au cours des 30 derniers jours (du ${new Date(proj.stats.pastTs).toLocaleDateString('fr-FR')} au ${new Date(proj.stats.currentTs).toLocaleDateString('fr-FR')})`
+												span.badge(style=`background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;` title=tooltipText)
+													= `+${formattedCount} (30j)`
 											if proj.stats && proj.stats.etaDays !== null && proj.stats.etaDays !== undefined && proj.stats.remaining > 0
 												- var etaDays = proj.stats.etaDays
 												- var etaYears = etaDays / 365
@@ -191,10 +210,10 @@ block content
 														if showFire
 															= "🔥 "
 														= "ETA: " + etaText
-									else if proj.stats && (proj.stats.last30Days === null || proj.stats.last30Days === undefined)
+									else
 										- // Afficher "0 objets" pour les projets sans données encore
 										div.mt-1
-											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible pour les 30 derniers jours")
+											span.badge(style="background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;" title="Aucune donnée disponible")
 												= "0 objet"
 
 	//- Modals for podium explanations
@@ -282,6 +301,11 @@ block content
 					// Don't show error to user, just log it
 				});
 			
+			// Helper function to format count (abbreviate to thousands if >= 1000)
+			function formatCount(count) {
+				return count >= 1000 ? Math.round(count / 1000) + 'k' : count.toString();
+			}
+			
 			// Helper function to update project badges
 			function updateProjectBadges(mediaEl, stats, isOtherProject = false) {
 				const mediaBody = mediaEl.querySelector('.media-body');
@@ -306,25 +330,41 @@ block content
 				const badgesContainer = document.createElement('div');
 				badgesContainer.classList.add(isOtherProject ? 'mt-1' : 'mt-2');
 				
-				if (stats.last30Days !== null && stats.last30Days !== undefined) {
-					const count = stats.last30Days || 0;
-					const maxForColor = 1000;
-					const normalized = Math.min(100, (count / maxForColor) * 100);
-					const hue = Math.min(120, normalized * 1.2);
-					const saturation = Math.min(85, 30 + normalized * 0.55);
-					const lightness = Math.max(35, 50 - normalized * 0.15);
-					const badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`;
+				if (stats.currentAmount !== undefined || stats.last30Days !== null) {
+					const currentAmount = stats.currentAmount || 0;
+					const last30Days = stats.last30Days || 0;
 					
-					const pastDate = stats.pastTs ? new Date(stats.pastTs).toLocaleDateString('fr-FR') : 'N/A';
-					const currentDate = stats.currentTs ? new Date(stats.currentTs).toLocaleDateString('fr-FR') : 'N/A';
-					const tooltipText = `Nombre d'objets intégrés au cours des 30 derniers jours (du ${pastDate} au ${currentDate})`;
+					// Badge nombre total d'objets
+					if (currentAmount > 0) {
+						const totalBadge = document.createElement('span');
+						totalBadge.classList.add('badge');
+						totalBadge.style.cssText = "background-color: #4a90e2; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; margin-right: 4px;";
+						totalBadge.setAttribute('title', `Nombre total d'objets comptés (${currentAmount.toLocaleString('fr-FR')})`);
+						totalBadge.textContent = `${formatCount(currentAmount)} objets`;
+						badgesContainer.appendChild(totalBadge);
+					}
 					
-					const countBadge = document.createElement('span');
-					countBadge.classList.add('badge');
-					countBadge.style.cssText = `background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;`;
-					countBadge.setAttribute('title', tooltipText);
-					countBadge.textContent = `${count.toLocaleString('fr-FR')} objets`;
-					badgesContainer.appendChild(countBadge);
+					// Badge objets ajoutés dans les 30 derniers jours
+					if (stats.last30Days !== null && stats.last30Days !== undefined) {
+						const count = last30Days;
+						const maxForColor = 1000;
+						const normalized = Math.min(100, (count / maxForColor) * 100);
+						const hue = Math.min(120, normalized * 1.2);
+						const saturation = Math.min(85, 30 + normalized * 0.55);
+						const lightness = Math.max(35, 50 - normalized * 0.15);
+						const badgeColor = `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`;
+						
+						const pastDate = stats.pastTs ? new Date(stats.pastTs).toLocaleDateString('fr-FR') : 'N/A';
+						const currentDate = stats.currentTs ? new Date(stats.currentTs).toLocaleDateString('fr-FR') : 'N/A';
+						const tooltipText = `Nombre d'objets ajoutés au cours des 30 derniers jours (du ${pastDate} au ${currentDate})`;
+						
+						const countBadge = document.createElement('span');
+						countBadge.classList.add('badge');
+						countBadge.style.cssText = `background-color: ${badgeColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;`;
+						countBadge.setAttribute('title', tooltipText);
+						countBadge.textContent = `+${formatCount(count)} (30j)`;
+						badgesContainer.appendChild(countBadge);
+					}
 					
 					// Add ETA badge if available
 					if (stats.etaDays !== null && stats.etaDays !== undefined && stats.remaining > 0) {
@@ -351,12 +391,12 @@ block content
 				} else {
 					// Show "0 objet" for projects without data
 					const noDataBadge = document.createElement('div');
-					noDataBadge.classList.add('mt-2');
+					noDataBadge.classList.add(isOtherProject ? 'mt-1' : 'mt-2');
 					
 					const badge = document.createElement('span');
 					badge.classList.add('badge');
 					badge.style.cssText = "background-color: hsl(0, 70%, 50%); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; cursor: help;";
-					badge.setAttribute('title', "Aucune donnée disponible pour les 30 derniers jours");
+					badge.setAttribute('title', "Aucune donnée disponible");
 					badge.textContent = "0 objet";
 					noDataBadge.appendChild(badge);
 					mediaBody.appendChild(noDataBadge);

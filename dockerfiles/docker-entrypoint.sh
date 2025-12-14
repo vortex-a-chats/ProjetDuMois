@@ -386,6 +386,18 @@ case $command in
     psql -d $DB_URL -f ./db/00_init.sql
     ;;
 "init")
+    # Vérifier si les tables de base existent, sinon exécuter install d'abord
+    if ! psql -d $DB_URL -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pdm_projects')" 2>/dev/null | grep -q "t"; then
+        echo "⚠️  Les tables de base n'existent pas. Exécution de 'install' d'abord..."
+        psql -d $DB_URL -f ./db/00_init.sql
+        if [ $? -eq 0 ]; then
+            echo "✓ Installation de la base de données terminée"
+        else
+            echo "❌ Erreur lors de l'installation de la base de données"
+            exit 1
+        fi
+    fi
+    
     npm run pbf:update $otherArgs
     if [ -f "/tmp/pdm/11_pbf_update_tmp.sh" ]; then
         /tmp/pdm/11_pbf_update_tmp.sh

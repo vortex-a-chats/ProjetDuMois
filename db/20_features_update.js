@@ -47,7 +47,7 @@ const yamlData = {
 			type: 'polygon',
 			mapping: { boundary: ['administrative'] },
 			filters: {
-				require: { 'admin_level': ['4','6','8'] }
+				require: { 'admin_level': ['4','6','7','8'] }
 			},
 			columns: [
 				{ name: 'osm_id', type: 'id' },
@@ -155,7 +155,11 @@ if (IMPOSM_ENABLED){
 }
 
 // View for multi-type layers
-const sqlToFull = sqlin => sqlin.map(vs => (`psql -d ${process.env.DB_URL} -c "${vs}"`)).join("\n\t");
+// Échapper $$ pour éviter que bash l'interprète comme le PID
+const sqlToFull = sqlin => sqlin.map(vs => {
+	const escaped = vs.replace(/\$\$/g, '\\$\\$');
+	return `psql -d ${process.env.DB_URL} -c "${escaped}"`;
+}).join("\n\t");
 const sqlToScript = sqlin => sqlin.map(vs => (`${vs};`)).join("\n\t");
 const preSQLFull = preSQL.length > 0 ? sqlToFull(preSQL) : "";
 const postSQLFull = postSQL.length > 0 ? sqlToFull(postSQL) : "";
