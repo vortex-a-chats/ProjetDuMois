@@ -188,6 +188,20 @@ block content
 						addBlock("+" + data.counts.added30d.toLocaleString('fr-FR'), "#{__('Ajouts sur 30 jours')} 🗓️");
 					}
 				}
+				
+				// INSEE data (population, budget, objects per inhabitant)
+				if(data.insee) {
+					if(data.insee.population != null) {
+						addBlock(data.insee.population.toLocaleString('fr-FR'), "#{__('Nombre d\\'habitants')} 👥");
+					}
+					if(data.insee.budget_total != null) {
+						const budgetFormatted = (data.insee.budget_total / 1000).toLocaleString('fr-FR', {maximumFractionDigits: 0}) + ' k€';
+						addBlock(budgetFormatted, "#{__('Budget annuel')} (#{data.insee.budget_year || ''}) 💰");
+					}
+					if(data.insee.objects_per_inhabitant != null) {
+						addBlock(data.insee.objects_per_inhabitant.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}), "#{__('Objets par habitant')} (#{new Date().getFullYear()}) 📊");
+					}
+				}
 
 				// Counts chart
 				if(data.counts && data.counts.chart && data.counts.chart.length > 0) {

@@ -281,13 +281,47 @@ block content
 			//- Overpass Turbo link if project has tag filter
 			if !isNext && database && database.osmium_tag_filter
 				div.mt-4
-					- var filterParts = database.osmium_tag_filter.split('/')
-					- var elementType = filterParts[0] || 'nwr'
-					- var tagParts = (filterParts[1] || '').split('=')
-					- var tagKey = tagParts[0] || ''
-					- var tagValue = tagParts[1] || ''
-					- var hasValidFilter = tagKey && tagValue
-					if hasValidFilter
+					//- Parse the osmium_tag_filter to extract all tag filters
+					//- Format can be: "amenity=restaurant" or "amenity=doctors n/amenity=pharmacy w/healthcare" etc.
+					- var filterString = database.osmium_tag_filter
+					- var filterParts = filterString.split(/\s+/)
+					- var overpassQueries = []
+					- var hasValidFilter = false
+					
+					//- Parse each filter part
+					each filterPart in filterParts
+						- var parts = filterPart.split('/')
+						- var elementType = 'nwr'
+						- var tagFilter = ''
+						
+						//- Determine element type and tag filter
+						if parts.length > 1
+							//- Format: n/amenity=restaurant or w/healthcare
+							- elementType = parts[0] || 'nwr'
+							- tagFilter = parts.slice(1).join('/')
+						else
+							//- Format: amenity=restaurant (no prefix, applies to all types)
+							- elementType = 'nwr'
+							- tagFilter = parts[0]
+						
+						- var tagParts = tagFilter.split('=')
+						- var tagKey = tagParts[0] || ''
+						- var tagValue = tagParts[1] || ''
+						
+						if tagKey
+							- hasValidFilter = true
+							//- Build Overpass filter: ["key"="value"] or ["key"] if no value
+							- var overpassTagFilter = tagValue ? '["' + tagKey + '"="' + tagValue + '"]' : '["' + tagKey + '"]'
+							
+							if elementType.includes('n') || elementType === 'nwr'
+								- overpassQueries.push('node' + overpassTagFilter + '({{bbox}});')
+							if elementType.includes('w') || elementType === 'nwr'
+								- overpassQueries.push('way' + overpassTagFilter + '({{bbox}});')
+							if elementType.includes('r') || elementType === 'nwr'
+								- overpassQueries.push('relation' + overpassTagFilter + '({{bbox}});')
+					
+					if hasValidFilter && overpassQueries.length > 0
+						//- Calculate bounding box from GEOJSON_BOUNDS (zone du fichier OSH)
 						- var bboxCoords = CONFIG.GEOJSON_BOUNDS && CONFIG.GEOJSON_BOUNDS.coordinates && CONFIG.GEOJSON_BOUNDS.coordinates[0] ? CONFIG.GEOJSON_BOUNDS.coordinates[0] : null
 						- var minLon = -5.0
 						- var minLat = 41.0
@@ -307,16 +341,18 @@ block content
 									- minLat = coord[1]
 								if coord[1] > maxLat
 									- maxLat = coord[1]
-						- var overpassQueries = []
-						if elementType.includes('n')
-							- overpassQueries.push('node["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
-						if elementType.includes('w')
-							- overpassQueries.push('way["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
-						if elementType.includes('r')
-							- overpassQueries.push('relation["' + tagKey + '"="' + tagValue + '"]({{bbox}});')
-						- var overpassQuery = '[out:json][timeout:25];\n(\n  ' + overpassQueries.join('  ') + '\n);\nout geom;'
-						- var overpassTurboUrl = 'https://overpass-turbo.eu/?Q=' + encodeURIComponent(overpassQuery) + '&R&bbox=' + minLon + ',' + minLat + ',' + maxLon + ',' + maxLat
-						p= __("Interroger les objets de ce projet avec Overpass Turbo :")
+						
+						//- Replace {{bbox}} with actual bbox values in queries
+						- var bboxString = minLon + ',' + minLat + ',' + maxLon + ',' + maxLat
+						- var overpassQueriesWithBbox = []
+						each query in overpassQueries
+							- overpassQueriesWithBbox.push(query.replace('{{bbox}}', bboxString))
+						
+						//- Build Overpass query with actual bbox values
+						- var overpassQuery = '[out:json][timeout:25];\n(\n  ' + overpassQueriesWithBbox.join('  ') + '\n);\nout geom;'
+						//- Overpass Turbo URL with bbox parameter (format: minLon,minLat,maxLon,maxLat)
+						- var overpassTurboUrl = 'https://overpass-turbo.eu/?Q=' + encodeURIComponent(overpassQuery) + '&R&bbox=' + bboxString
+						p= __("Voir les objets de ce projet sur Overpass Turbo (zone du fichier OSH) :")
 						a.btn.btn-outline-primary(href=overpassTurboUrl target="_blank" rel="noopener noreferrer")
 							i.fa.fa-external-link-alt.mr-2
 							= __("Ouvrir dans Overpass Turbo")

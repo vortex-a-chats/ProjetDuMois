@@ -130,6 +130,30 @@ CREATE TABLE pdm_feature_counts_per_boundary(
 CREATE INDEX ON pdm_feature_counts_per_boundary using btree (project);
 CREATE INDEX ON pdm_feature_counts_per_boundary using btree (boundary);
 
+-- INSEE data (population and budget for French municipalities)
+CREATE TABLE IF NOT EXISTS pdm_insee_data (
+	insee_code VARCHAR(10) PRIMARY KEY,
+	name VARCHAR(255) NOT NULL,
+	population INT,
+	budget_total BIGINT,
+	budget_year INT,
+	last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ON pdm_insee_data USING btree(insee_code);
+CREATE INDEX ON pdm_insee_data USING btree(name);
+
+-- Link between boundaries and INSEE codes
+-- The ref tag in OSM boundaries often contains the INSEE code
+CREATE TABLE IF NOT EXISTS pdm_boundary_insee (
+	boundary_id BIGINT NOT NULL,
+	insee_code VARCHAR(10) NOT NULL,
+	CONSTRAINT pdm_boundary_insee_pk PRIMARY KEY (boundary_id, insee_code)
+);
+
+CREATE INDEX ON pdm_boundary_insee USING btree(boundary_id);
+CREATE INDEX ON pdm_boundary_insee USING btree(insee_code);
+
 -- Extensions for Imposm
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS hstore;

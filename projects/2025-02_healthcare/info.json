@@ -1,8 +1,8 @@
 {
   "id": "2025-02_healthcare",
   "title": "Lieux de santé",
-  "start_date": "2025-02-01",
-  "end_date": "2026-06-01",
+  "start_date": "2025-01-01",
+  "end_date": "2025-12-31",
   "summary": "Les lieux de santé sont essentiels pour l'accès aux soins. Cartographions ensemble tous les lieux de santé dans OpenStreetMap ! #Santé #ProjetDuMois",
   "image": "/images/projects/healthcare.png",
   "links": {
@@ -14,11 +14,10 @@
     ]
   },
   "database": {
-    "osmium_tag_filter": "amenity=doctors n/amenity=pharmacy n/amenity=hospital n/amenity=clinic n/amenity=social_facility n/healthcare w/amenity=doctors w/amenity=pharmacy w/amenity=hospital w/amenity=clinic w/amenity=social_facility w/healthcare r/amenity=doctors r/amenity=pharmacy r/amenity=hospital r/amenity=clinic r/amenity=social_facility r/healthcare",
+    "osmium_tag_filter": "healthcare",
     "imposm": {
       "types": ["point", "polygon"],
       "mapping": {
-        "amenity": ["doctors", "pharmacy", "hospital", "clinic", "social_facility"],
         "healthcare": ["*"]
       }
     }

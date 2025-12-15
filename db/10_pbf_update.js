@@ -187,9 +187,8 @@ if [[ "$mode" != "fast" ]]; then
 				exit 1
 			fi
 		fi
-		# Use simple strategy instead of complete_ways to reduce memory usage
-		# For OSH files with history, simple strategy is sufficient for polygon extraction
-		osmium extract -p "${OSH_POLY}" --with-history -s simple "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
+		# Use complete_ways strategy because simple is not supported on history files
+		osmium extract -p "${OSH_POLY}" --with-history -s complete_ways "${OSH_UPDATED_NEW}" -O -o "${OSH_UPDATED}"
 	fi
 	echo "== Remove temp files"
 	rm -f "${OSC_UPDATES}"

@@ -1625,8 +1625,19 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
     `,
       [req.params.id, boundaryId],
     ),
+    // Get INSEE data for this boundary
+    pool.query(
+      `
+      SELECT i.insee_code, i.name, i.population, i.budget_total, i.budget_year
+      FROM pdm_boundary_insee bi
+      JOIN pdm_insee_data i ON bi.insee_code = i.insee_code
+      WHERE bi.boundary_id = $1 OR bi.boundary_id = -$1
+      LIMIT 1
+    `,
+      [boundaryId],
+    ),
   ])
-    .then(([boundaryResult, countsResult, projectsResult, objectsResult]) => {
+    .then(([boundaryResult, countsResult, projectsResult, objectsResult, inseeResult]) => {
       if (boundaryResult.rows.length === 0) {
         return res.status(404).json({ error: "Boundary not found" });
       }
@@ -1649,6 +1660,20 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
         counts.length > 0 ? counts[counts.length - 1].y : 0;
       const firstAmount = counts.length > 0 ? counts[0].y : 0;
       const added = counts.length > 0 ? currentAmount - firstAmount : 0;
+      
+      // Get INSEE data if available
+      const inseeData = inseeResult.rows.length > 0 ? inseeResult.rows[0] : null;
+      const currentYear = new Date().getFullYear();
+      const currentYearCount = counts.filter(c => {
+        const countYear = new Date(c.t).getFullYear();
+        return countYear === currentYear;
+      });
+      const currentYearAmount = currentYearCount.length > 0 ? currentYearCount[currentYearCount.length - 1].y : currentAmount;
+      
+      // Calculate objects per inhabitant
+      const objectsPerInhabitant = inseeData && inseeData.population && inseeData.population > 0
+        ? (currentYearAmount / inseeData.population).toFixed(2)
+        : null;
 
       const computeDelta = (days) => {
         if (counts.length === 0) return null;
@@ -1699,6 +1724,13 @@ app.get("/projects/:id/zones/:boundary_id/stats", (req, res) => {
           current: parseInt(objectsResult.rows[0]?.count || 0),
         },
         otherProjects: otherProjects,
+        insee: inseeData ? {
+          population: inseeData.population,
+          budget_total: inseeData.budget_total,
+          budget_year: inseeData.budget_year,
+          objects_per_inhabitant: objectsPerInhabitant ? parseFloat(objectsPerInhabitant) : null,
+          current_year_objects: currentYearAmount,
+        } : null,
       };
 
       // Add quality stats if available

@@ -10,19 +10,42 @@ const {Pool, Client} = require('pg')
 const args = process.argv.slice(2);
 const forceRecalculate = args.includes('--force-recalculate') || process.env.FORCE_RECALCULATE === 'true';
 const forceExtract = args.includes('--force-extract') || process.env.FORCE_EXTRACT === 'true';
-const targetProjectId = args.find(arg => !arg.startsWith('--') && projects[arg]) || null;
+
+// Find project ID argument (first argument that doesn't start with -- and matches a project)
+const targetProjectIdArg = args.find(arg => !arg.startsWith('--'));
+const targetProjectId = targetProjectIdArg && projects[targetProjectIdArg] ? targetProjectIdArg : null;
 
 let projectsToProcess = Object.values(projects);
 
-if (targetProjectId) {
-	// Filter to only the specified project
-	if (!projects[targetProjectId]) {
-		console.error(`ERROR: Project "${targetProjectId}" not found.`);
-		console.error(`Available projects: ${Object.keys(projects).join(', ')}`);
+if (targetProjectIdArg) {
+	// A project ID argument was provided
+	if (!targetProjectId) {
+		// Project not found - suggest similar projects
+		console.error(`\n❌ ERROR: Project "${targetProjectIdArg}" not found.\n`);
+		
+		// Try to find similar project names
+		const targetLower = targetProjectIdArg.toLowerCase();
+		const similarProjects = Object.keys(projects).filter(p => {
+			const pLower = p.toLowerCase();
+			// Check if project name contains the target or vice versa
+			return pLower.includes(targetLower) || targetLower.includes(pLower) ||
+				// Check if the part after the first underscore matches
+				(pLower.split('_').slice(1).join('_').includes(targetLower.split('_').slice(1).join('_')) ||
+				 targetLower.split('_').slice(1).join('_').includes(pLower.split('_').slice(1).join('_')));
+		});
+		
+		if (similarProjects.length > 0) {
+			console.error(`💡 Did you mean one of these?`);
+			similarProjects.forEach(p => console.error(`   - ${p}`));
+		} else {
+			console.error(`Available projects (${Object.keys(projects).length} total):`);
+			Object.keys(projects).sort().forEach(p => console.error(`   - ${p}`));
+		}
+		console.error('');
 		process.exit(1);
 	}
 	projectsToProcess = [projects[targetProjectId]];
-	console.log(`Processing only project: ${targetProjectId}`);
+	console.log(`✓ Processing only project: ${targetProjectId}`);
 } else {
 	console.log(`Processing all ${projectsToProcess.length} projects`);
 }
@@ -1025,6 +1048,8 @@ echo "== Statistics for project ${project.id}"`;
 	// Dénombrements
 	if (project.statistics.count){
 		script += `
+# Clean up any previous stats files for this project at the start
+rm -f "${osmStats}" "${osmStatsFiltered}" "${osmStats}.osm.pbf"
 echo "   => Count features"
 if [ "$FORCE_RECALCULATE" = "true" ]; then
 	echo "   => Mode: Recalcul complet (toutes les dates depuis le début du projet seront recalculées)"
@@ -1057,64 +1082,100 @@ for day in "\${days[@]}"; do
 	fi
 	
 	echo "Processing \${day}"
-	# Apply time-filter first on the full OSH file, then apply tag filters
-	# This is more efficient and works better with small regions
-	if osmium time-filter "${OSH_UPDATED}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osh.pbf 2>/dev/null; then
-		if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
-			`;
-	let tagFilterLastPart = tagFilterParts.pop();
-	tagFilterParts.forEach(tagFilter => {
-		script += `
-			if osmium tags-filter "${osmStats}" ${tagFilter} --no-progress -O -o "${osmStatsFiltered}" -f osh.pbf 2>/dev/null; then
-				if [ -f "${osmStatsFiltered}" ] && [ -s "${osmStatsFiltered}" ]; then
-					mv "${osmStatsFiltered}" "${osmStats}"
-				else
-					echo "   ⚠️  Filtered file is empty, skipping"
-					rm -f "${osmStats}" "${osmStatsFiltered}"
+	# Apply tag filters first on the full OSH file, then apply time-filter
+	# This ensures we get all objects with the tags that existed at the given date
+	# Clean up any previous stats files for this project
+	rm -f "${osmStats}" "${osmStatsFiltered}"
+	# First, apply all tag filters to get all objects with matching tags
+	TMP_TAGGED="${osmStats}.tagged.osh.pbf"
+	rm -f "\${TMP_TAGGED}"
+	`;
+	// Apply all tag filters sequentially to the full OSH file
+	tagFilterParts.forEach((tagFilter, index) => {
+		if (index === 0) {
+			// First filter: apply to full OSH file
+			script += `
+			if osmium tags-filter "${OSH_UPDATED}" ${tagFilter} --no-progress -O -o "\${TMP_TAGGED}" -f osh.pbf 2>/dev/null; then
+				if [ ! -f "\${TMP_TAGGED}" ] || [ ! -s "\${TMP_TAGGED}" ]; then
+					echo "   ⚠️  Filtered file is empty after tag filter ${index + 1}, skipping"
+					rm -f "\${TMP_TAGGED}"
 					nbday="0"
 				fi
 			else
-				echo "   ⚠️  Failed to filter, skipping"
-				rm -f "${osmStats}" "${osmStatsFiltered}"
+				echo "   ⚠️  Failed to apply tag filter ${index + 1}, skipping"
+				rm -f "\${TMP_TAGGED}"
 				nbday="0"
 			fi
 			`;
+		} else {
+			// Subsequent filters: apply to already filtered file
+			script += `
+			if [ -f "\${TMP_TAGGED}" ] && [ -s "\${TMP_TAGGED}" ]; then
+				if osmium tags-filter "\${TMP_TAGGED}" ${tagFilter} --no-progress -O -o "\${TMP_TAGGED}.tmp" -f osh.pbf 2>/dev/null; then
+					if [ -f "\${TMP_TAGGED}.tmp" ] && [ -s "\${TMP_TAGGED}.tmp" ]; then
+						mv "\${TMP_TAGGED}.tmp" "\${TMP_TAGGED}"
+					else
+						echo "   ⚠️  Filtered file is empty after tag filter ${index + 1}, skipping"
+						rm -f "\${TMP_TAGGED}" "\${TMP_TAGGED}.tmp"
+						nbday="0"
+					fi
+				else
+					echo "   ⚠️  Failed to apply tag filter ${index + 1}, skipping"
+					rm -f "\${TMP_TAGGED}" "\${TMP_TAGGED}.tmp"
+					nbday="0"
+				fi
+			fi
+			`;
+		}
 	});
 
 	script += `
+	# Now apply time-filter to get objects that existed at the given date
+	if [ -f "\${TMP_TAGGED}" ] && [ -s "\${TMP_TAGGED}" ]; then
+		if osmium time-filter "\${TMP_TAGGED}" \${day}T23:59:59Z --no-progress -O -o ${osmStats} -f osh.pbf 2>/dev/null; then
 			if [ -f "${osmStats}" ] && [ -s "${osmStats}" ]; then
-				# Convert to OSM format for counting
-				# Since the file is already filtered by tags, we count all objects in it
-				# This ensures we count the same objects that are in the database (nodes and ways, not relations)
-				if osmium export "${osmStats}" -f osm.pbf -O -o "${osmStats}.osm.pbf" 2>/dev/null; then
+				# Convert OSH to OSM format for counting (get latest version of each object at the given date)
+				# Initialize nbday to 0 to ensure it's reset for each day
+				nbday="0"
+				# Use time-filter with the same date to get the state at that date
+				# The file is already time-filtered, so we just need to convert to OSM format
+				TMP_OSM_LATEST="${osmStats}.latest.osm.pbf"
+				if osmium time-filter "${osmStats}" \${day}T23:59:59Z -O -o "\${TMP_OSM_LATEST}" -f osm.pbf 2>/dev/null; then
 					# Count all objects in the filtered file (nodes + ways)
 					# Use fileinfo to get accurate counts
-					nbday=$(osmium fileinfo "${osmStats}.osm.pbf" --extended --no-progress 2>/dev/null | grep -E "nodes|ways" | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
-					rm -f "${osmStats}.osm.pbf"
+					nbday=$(osmium fileinfo "\${TMP_OSM_LATEST}" --extended --no-progress 2>/dev/null | grep -E "nodes|ways" | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
+					rm -f "\${TMP_OSM_LATEST}"
 				else
-					# Fallback: count from OSH file using fileinfo
-					nbday=$(osmium fileinfo "${osmStats}" --extended --no-progress 2>/dev/null | grep -E "nodes|ways" | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
-				fi
-				if [ "$nbday" == "" ]; then
+					echo "   ⚠️  Failed to convert OSH to OSM for counting"
 					nbday="0"
 				fi
+				if [ -z "$nbday" ] || [ "$nbday" == "" ]; then
+					nbday="0"
+				fi
+				echo "   => Count for \${day}: \${nbday} objects"
 			else
+				echo "   ⚠️  Time-filtered file is empty or missing, skipping count for \${day}"
 				nbday="0"
 			fi
 		else
-			echo "   ⚠️  OSM stats file is empty or missing after time-filter, skipping count for \${day}"
+			echo "   ⚠️  Failed to apply time-filter, skipping count for \${day}"
 			nbday="0"
 		fi
+		rm -f "\${TMP_TAGGED}"
 	else
-		echo "   ⚠️  Failed to filter by time, skipping count for \${day}"
+		echo "   ⚠️  Tag-filtered file is empty or missing, skipping count for \${day}"
 		nbday="0"
 	fi
 
 	# Insérer ou mettre à jour la mesure (ON CONFLICT permet de mettre à jour si on force le recalcul)
 	${PSQL} -c "INSERT INTO pdm_feature_counts (project,ts,amount) VALUES ('${project.id}', '\${day}T23:59:59Z', \${nbday}) ON CONFLICT (project,ts) DO UPDATE SET amount=EXCLUDED.amount"
+	# Clean up stats files after each day to avoid reuse
+	rm -f "${osmStats}" "${osmStatsFiltered}" "${osmStats}.osm.pbf"
 	if ${HAS_BOUNDARY}; then
 		if ${PSQL} -c "SELECT * FROM pdm_boundary_subdivide LIMIT 1" > /dev/null 2>&1; then
-			${PSQL} -c "INSERT INTO pdm_feature_counts_per_boundary(project, boundary, ts, amount) SELECT '${project.id}' as project, boundary, '\${day}T23:59:59Z' AS ts, count(*) as amount FROM pdm_features_boundary WHERE project='${project.id}' AND ('\${day}T23:59:59Z' BETWEEN start_ts AND end_ts OR (start_ts is null and end_ts is null) OR '\${day}T23:59:59Z' > start_ts OR '\${day}T23:59:59Z' < end_ts) GROUP BY project, boundary ON CONFLICT (project,boundary,ts) DO UPDATE SET amount=EXCLUDED.amount"
+			# Count objects per boundary that exist at the given date
+			# An object exists at date if: start_ts <= date AND (end_ts IS NULL OR end_ts > date)
+			${PSQL} -c "INSERT INTO pdm_feature_counts_per_boundary(project, boundary, ts, amount) SELECT '${project.id}' as project, boundary, '\${day}T23:59:59Z' AS ts, count(DISTINCT osmid) as amount FROM pdm_features_boundary WHERE project='${project.id}' AND start_ts <= '\${day}T23:59:59Z' AND (end_ts IS NULL OR end_ts > '\${day}T23:59:59Z') GROUP BY project, boundary ON CONFLICT (project,boundary,ts) DO UPDATE SET amount=EXCLUDED.amount"
 		fi
 	fi
 done
